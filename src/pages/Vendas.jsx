@@ -107,6 +107,10 @@ export default function Vendas() {
   const [cart, setCart] = useState([]);
   const [pagamentos, setPagamentos] = useState([]); // Multiple payments
   const [search, setSearch] = useState('');
+  const [showNovoCliente, setShowNovoCliente] = useState(false);
+  const [novoClienteForm, setNovoClienteForm] = useState({ nome: '', telefone: '' });
+  const [showNovoProduto, setShowNovoProduto] = useState(false);
+  const [novoProdutoForm, setNovoProdutoForm] = useState({ nome: '', preco_venda: '' });
 
   useEffect(() => { load(); }, []);
 
@@ -151,6 +155,30 @@ export default function Vendas() {
     setCart([]);
     setPagamentos([]);
     setShowModal(true);
+  }
+
+  async function handleSaveNovoCliente(e) {
+    e.preventDefault();
+    if (!novoClienteForm.nome) return addToast('Nome obrigatório', 'error');
+    const { data, error } = await supabase.from('clientes').insert({ nome: novoClienteForm.nome, telefone: novoClienteForm.telefone, ativo: true }).select().single();
+    if (error) return addToast('Erro: ' + error.message, 'error');
+    setClientes([...clientes, data].sort((a,b)=>a.nome.localeCompare(b.nome)));
+    setForm({ ...form, cliente_id: data.id });
+    setShowNovoCliente(false);
+    setNovoClienteForm({ nome: '', telefone: '' });
+    addToast('Cliente cadastrado!');
+  }
+
+  async function handleSaveNovoProduto(e) {
+    e.preventDefault();
+    if (!novoProdutoForm.nome) return addToast('Nome obrigatório', 'error');
+    const { data, error } = await supabase.from('produtos').insert({ nome: novoProdutoForm.nome, preco_venda: toCents(novoProdutoForm.preco_venda || '0'), ativo: true }).select().single();
+    if (error) return addToast('Erro: ' + error.message, 'error');
+    setProdutos([...produtos, data].sort((a,b)=>a.nome.localeCompare(b.nome)));
+    setCart([...cart, { produto_id: data.id, quantidade: 1, valor_unitario: data.preco_venda }]);
+    setShowNovoProduto(false);
+    setNovoProdutoForm({ nome: '', preco_venda: '' });
+    addToast('Produto cadastrado!');
   }
 
   async function handleSave(e) {
@@ -299,9 +327,12 @@ export default function Vendas() {
               <div className="modal-body">
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
                   <div className="form-group"><label className="form-label">Cliente</label>
-                    <select className="form-select" value={form.cliente_id} onChange={e => setForm({ ...form, cliente_id: e.target.value })}>
-                      <option value="">Sem cliente</option>{clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                    </select>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <select className="form-select" value={form.cliente_id} onChange={e => setForm({ ...form, cliente_id: e.target.value })}>
+                        <option value="">Sem cliente</option>{clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                      </select>
+                      <button type="button" className="btn btn-secondary" onClick={() => setShowNovoCliente(true)} title="Novo Cliente">+</button>
+                    </div>
                   </div>
                   <div className="form-group"><label className="form-label">Vendedor</label>
                     <select className="form-select" value={form.vendedor_id} onChange={e => setForm({ ...form, vendedor_id: e.target.value })}>
@@ -316,7 +347,10 @@ export default function Vendas() {
                 <div style={{ marginBottom: 'var(--space-6)', paddingBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-glass-border)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
                     <h4 style={{ fontFamily: 'var(--font-display)', display: 'flex', alignItems: 'center', gap: 6 }}><Receipt size={18}/> Itens da Venda</h4>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={addToCart}><Plus size={14} /> Item</button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowNovoProduto(true)}>+ Novo Produto</button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={addToCart}><Plus size={14} /> Item</button>
+                    </div>
                   </div>
                   {cart.length === 0 ? <p className="text-muted" style={{ fontSize: 'var(--text-sm)' }}>Nenhum item.</p> : (
                     <table className="data-table">
@@ -403,6 +437,42 @@ export default function Vendas() {
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
                 <button type="submit" className="btn btn-primary" disabled={pagamentosTotal !== cartTotal || cartTotal === 0}>Finalizar Venda</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showNovoCliente && (
+        <div className="modal-backdrop" onClick={() => setShowNovoCliente(false)} style={{ zIndex: 1100 }}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header"><h3 className="modal-title">Novo Cliente Rápido</h3><button className="btn btn-ghost btn-icon" onClick={() => setShowNovoCliente(false)}><X size={20} /></button></div>
+            <form onSubmit={handleSaveNovoCliente}>
+              <div className="modal-body">
+                <div className="form-group"><label className="form-label">Nome Completo *</label><input className="form-input" value={novoClienteForm.nome} onChange={e => setNovoClienteForm({...novoClienteForm, nome: e.target.value})} required autoFocus /></div>
+                <div className="form-group"><label className="form-label">Telefone</label><input className="form-input" value={novoClienteForm.telefone} onChange={e => setNovoClienteForm({...novoClienteForm, telefone: e.target.value})} /></div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowNovoCliente(false)}>Cancelar</button>
+                <button type="submit" className="btn btn-primary">Salvar Cliente</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showNovoProduto && (
+        <div className="modal-backdrop" onClick={() => setShowNovoProduto(false)} style={{ zIndex: 1100 }}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header"><h3 className="modal-title">Novo Produto Rápido</h3><button className="btn btn-ghost btn-icon" onClick={() => setShowNovoProduto(false)}><X size={20} /></button></div>
+            <form onSubmit={handleSaveNovoProduto}>
+              <div className="modal-body">
+                <div className="form-group"><label className="form-label">Nome do Produto *</label><input className="form-input" value={novoProdutoForm.nome} onChange={e => setNovoProdutoForm({...novoProdutoForm, nome: e.target.value})} required autoFocus /></div>
+                <div className="form-group"><label className="form-label">Preço de Venda (R$)</label><input type="number" step="0.01" min="0" className="form-input" value={novoProdutoForm.preco_venda} onChange={e => setNovoProdutoForm({...novoProdutoForm, preco_venda: e.target.value})} /></div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowNovoProduto(false)}>Cancelar</button>
+                <button type="submit" className="btn btn-primary">Salvar Produto</button>
               </div>
             </form>
           </div>
