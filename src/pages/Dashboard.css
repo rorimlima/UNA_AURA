@@ -1,0 +1,180 @@
+/* ─── Dashboard ─── */
+.dashboard-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+}
+
+.dashboard-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.kpi-trend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  margin-top: var(--space-2);
+}
+
+.kpi-trend.up { color: var(--color-success); }
+.kpi-trend.down { color: var(--color-danger); }
+.kpi-trend.warn { color: var(--color-warning); }
+.kpi-trend.neutral { color: var(--color-text-muted); }
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+/* Finance Card */
+.dashboard-finance-card {
+  padding: var(--space-5);
+}
+
+.finance-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.finance-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.finance-item-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.finance-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+}
+
+.finance-dot.receive { background: var(--color-success); }
+.finance-dot.pay { background: var(--color-danger); }
+
+.finance-item-value {
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+
+.finance-item-value.receive { color: var(--color-success); }
+.finance-item-value.pay { color: var(--color-danger); }
+
+.finance-divider {
+  border-top: 1px dashed var(--color-glass-border);
+}
+
+.finance-item.total .finance-item-label {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+/* Insights Card */
+.dashboard-insights-card {
+  padding: var(--space-5);
+}
+
+.insights-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.insight-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.insight-item.warn {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.insight-item.success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.insight-item.info {
+  background: var(--color-info-bg);
+  color: var(--color-info);
+}
+
+.insight-item svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* Stock Alerts */
+.dashboard-stock-alert {
+  padding: var(--space-5);
+}
+
+.stock-alert-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+
+.stock-alert-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-glass);
+  border-radius: var(--radius-md);
+}
+
+.stock-alert-name {
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+@media (max-width: 1024px) {
+  .dashboard-kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-kpis {
+    grid-template-columns: 1fr;
+  }
+}
