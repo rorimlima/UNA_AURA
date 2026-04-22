@@ -5,6 +5,7 @@ import {
   AlertTriangle, DollarSign, Users, BarChart3,
   ArrowUpRight, ArrowDownRight, Lightbulb, Gem
 } from 'lucide-react';
+import { formatMoney } from '../lib/money';
 import './Dashboard.css';
 
 export default function Dashboard() {
@@ -83,9 +84,7 @@ export default function Dashboard() {
     }
   }
 
-  function formatCurrency(value) {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-  }
+  const formatCurrency = formatMoney;
 
   if (loading) {
     return (

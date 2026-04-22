@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
 import { Plus, Search, Edit2, Trash2, Package, X, Upload, Image as ImageIcon, DollarSign, TrendingUp, AlertTriangle } from 'lucide-react';
+import { formatMoney, toCents, toReal } from '../lib/money';
 
 export default function Estoque() {
   const { addToast } = useToast();
@@ -27,7 +28,7 @@ export default function Estoque() {
 
   function openEdit(p) {
     setEditing(p);
-    setForm({ nome:p.nome||'',codigo:p.codigo||'',referencia:p.referencia||'',categoria:p.categoria||'',descricao:p.descricao||'',custo_unitario:p.custo_unitario?.toString()||'',preco_venda:p.preco_venda?.toString()||'',estoque_minimo:p.estoque_minimo?.toString()||'5',imagens:p.imagens||[] });
+    setForm({ nome:p.nome||'',codigo:p.codigo||'',referencia:p.referencia||'',categoria:p.categoria||'',descricao:p.descricao||'',custo_unitario:p.custo_unitario?toReal(p.custo_unitario).toString():'',preco_venda:p.preco_venda?toReal(p.preco_venda).toString():'',estoque_minimo:p.estoque_minimo?.toString()||'5',imagens:p.imagens||[] });
     setShowModal(true);
   }
 
@@ -50,7 +51,7 @@ export default function Estoque() {
   async function handleSave(e) {
     e.preventDefault();
     if (!form.nome.trim()) return addToast('Nome obrigatório','error');
-    const payload = { ...form, custo_unitario: parseFloat(form.custo_unitario)||0, preco_venda: parseFloat(form.preco_venda)||0, estoque_minimo: parseInt(form.estoque_minimo)||5 };
+    const payload = { ...form, custo_unitario: toCents(form.custo_unitario), preco_venda: toCents(form.preco_venda), estoque_minimo: parseInt(form.estoque_minimo)||5 };
     if (editing) {
       const { error } = await supabase.from('produtos').update(payload).eq('id', editing.id);
       if (error) return addToast('Erro: '+error.message,'error');
@@ -69,7 +70,7 @@ export default function Estoque() {
     addToast('Produto removido.'); load();
   }
 
-  const fmt = (v) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
+  const fmt = formatMoney;
   const categories = [...new Set(produtos.map(p=>p.categoria).filter(Boolean))];
   const filtered = produtos.filter(p => {
     const ms = p.nome.toLowerCase().includes(search.toLowerCase()) || (p.codigo||'').toLowerCase().includes(search.toLowerCase());

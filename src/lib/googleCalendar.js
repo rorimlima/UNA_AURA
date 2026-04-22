@@ -3,6 +3,7 @@
  * Cria links para abrir eventos pré-preenchidos no Google Calendar
  * Não requer OAuth — abre diretamente no browser do usuário
  */
+import { formatMoney } from './money';
 
 /**
  * Formata uma data para o padrão YYYYMMDD do Google Calendar
@@ -82,7 +83,7 @@ export function downloadICS(events, filename = 'cobrancas-una-aura.ics') {
  * Formata mensagem de WhatsApp para cobrança
  */
 export function generateWhatsAppMessage({ clienteName, valor, dataVencimento, parcela, totalParcelas, pedido }) {
-  const fmtValor = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
+  const fmtValor = formatMoney(valor);
   const fmtData = new Date(dataVencimento + 'T12:00:00').toLocaleDateString('pt-BR');
   const parcelaInfo = totalParcelas > 1 ? ` (parcela ${parcela}/${totalParcelas})` : '';
 

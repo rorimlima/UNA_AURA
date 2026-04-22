@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Eye, EyeOff } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 import './Login.css';
 
 export default function Login() {
@@ -13,6 +14,12 @@ export default function Login() {
   const [error, setError] = useState('');
   const [mode, setMode] = useState('login'); // 'login' | 'reset'
   const [resetSent, setResetSent] = useState(false);
+  const [empresa, setEmpresa] = useState(null);
+
+  useEffect(() => {
+    supabase.from('empresa').select('nome, logo_url').limit(1).maybeSingle()
+      .then(({ data }) => { if (data) setEmpresa(data); });
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -49,7 +56,9 @@ export default function Login() {
         <div className="login-brand">
           <div className="login-brand-content">
             <div className="login-logo-official">
-              <img src="/logo.svg" alt="UNA AURA" />
+              {empresa?.logo_url
+                ? <img src={empresa.logo_url} alt={empresa.nome || 'UNA AURA'} style={{ maxHeight: 100, objectFit: 'contain' }} />
+                : <img src="/logo.svg" alt="UNA AURA" />}
             </div>
             <p className="login-brand-tagline">O brilho que já existe em você</p>
             <div className="login-brand-divider" />

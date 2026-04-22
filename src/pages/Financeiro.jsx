@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
 import { DollarSign, ArrowDownCircle, ArrowUpCircle, Check, X, Plus, Search, Building2, CreditCard } from 'lucide-react';
+import { formatMoney, toCents } from '../lib/money';
 
 export default function Financeiro() {
   const { addToast } = useToast();
@@ -43,7 +44,7 @@ export default function Financeiro() {
   async function saveConta(e) {
     e.preventDefault();
     const { error } = await supabase.from('contas_financeiras').insert({
-      ...contaForm, saldo_inicial: parseFloat(contaForm.saldo_inicial) || 0, saldo_atual: parseFloat(contaForm.saldo_inicial) || 0
+      ...contaForm, saldo_inicial: toCents(contaForm.saldo_inicial), saldo_atual: toCents(contaForm.saldo_inicial)
     });
     if (error) return addToast('Erro: ' + error.message, 'error');
     addToast('Conta cadastrada!');
@@ -57,7 +58,7 @@ export default function Financeiro() {
       descricao: pagarForm.descricao,
       categoria: pagarForm.categoria,
       fornecedor_id: pagarForm.fornecedor_id || null,
-      valor: parseFloat(pagarForm.valor),
+      valor: toCents(pagarForm.valor),
       data_vencimento: pagarForm.data_vencimento,
       forma_pagamento: pagarForm.forma_pagamento,
       observacoes: pagarForm.observacoes,
@@ -70,7 +71,7 @@ export default function Financeiro() {
     load();
   }
 
-  const fmt = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+  const fmt = formatMoney;
 
   const totalPagar = contasPagar.filter(c => c.status === 'pendente').reduce((s, c) => s + c.valor, 0);
   const totalReceber = contasReceber.filter(c => c.status === 'pendente').reduce((s, c) => s + c.valor, 0);

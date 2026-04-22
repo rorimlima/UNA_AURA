@@ -13,6 +13,9 @@ import Financeiro from './pages/Financeiro';
 import Resultados from './pages/Resultados';
 import Inadimplencia from './pages/Inadimplencia';
 import FluxoCaixa from './pages/FluxoCaixa';
+import Empresa from './pages/Empresa';
+import CRM from './pages/CRM';
+import Conciliacao from './pages/Conciliacao';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -55,6 +58,9 @@ export default function App() {
             <Route path="resultados" element={<Resultados />} />
             <Route path="inadimplencia" element={<Inadimplencia />} />
             <Route path="fluxo-caixa" element={<FluxoCaixa />} />
+            <Route path="conciliacao" element={<Conciliacao />} />
+            <Route path="empresa" element={<Empresa />} />
+            <Route path="crm" element={<CRM />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

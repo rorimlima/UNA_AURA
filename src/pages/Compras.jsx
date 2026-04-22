@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
 import { Plus, Search, ShoppingCart, X, Trash2, Upload, Eye } from 'lucide-react';
+import { formatMoney, toCents, toReal } from '../lib/money';
 
 export default function Compras() {
   const { addToast } = useToast();
@@ -81,7 +82,7 @@ export default function Compras() {
     setShowModal(false); setCart([]); load();
   }
 
-  const fmt = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+  const fmt = formatMoney;
 
   const filtered = compras.filter(c =>
     (c.fornecedores?.nome || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -162,7 +163,7 @@ export default function Compras() {
                               {produtos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
                             </select></td>
                             <td><input type="number" className="form-input" value={item.quantidade} onChange={e => updateCartItem(idx, 'quantidade', parseInt(e.target.value) || 0)} min="1" style={{ width: 80 }} /></td>
-                            <td><input type="number" step="0.01" className="form-input" value={item.valor_unitario} onChange={e => updateCartItem(idx, 'valor_unitario', parseFloat(e.target.value) || 0)} style={{ width: 120 }} /></td>
+                            <td><input type="number" step="0.01" className="form-input" value={toReal(item.valor_unitario)} onChange={e => updateCartItem(idx, 'valor_unitario', toCents(e.target.value))} style={{ width: 120 }} /></td>
                             <td style={{ fontWeight: 600 }}>{fmt(item.quantidade * item.valor_unitario)}</td>
                             <td><button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={() => removeCartItem(idx)} style={{ color: 'var(--color-danger)' }}><Trash2 size={14} /></button></td>
                           </tr>

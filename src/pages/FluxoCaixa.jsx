@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { TrendingUp, TrendingDown, DollarSign, Calendar, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { downloadICS } from '../lib/googleCalendar';
 import { useToast } from '../contexts/ToastContext';
+import { formatMoney } from '../lib/money';
 
 const PERIODOS = [
   { key: 7, label: '7 dias' },
@@ -109,7 +110,7 @@ export default function FluxoCaixa() {
     addToast('Fluxo de caixa exportado para Google Calendar!');
   }
 
-  const fmt = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+  const fmt = formatMoney;
   const maxVal = Math.max(...dados.map(d => Math.max(d.entradas, d.saidas)), 1);
   const diasComMovimento = dados.filter(d => d.entradas > 0 || d.saidas > 0);
   const melhorDia = diasComMovimento.reduce((m, d) => (!m || d.entradas - d.saidas > m.entradas - m.saidas) ? d : m, null);

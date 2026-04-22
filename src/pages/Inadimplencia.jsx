@@ -6,6 +6,7 @@ import {
   Filter, Download, Clock, TrendingDown, Phone, X, ChevronDown
 } from 'lucide-react';
 import { generateCalendarLink, downloadICS, generateWhatsAppMessage } from '../lib/googleCalendar';
+import { formatMoney, toCents, toReal } from '../lib/money';
 
 const FILTROS = [
   { key: 'todos', label: 'Todos' },
@@ -106,7 +107,7 @@ export default function Inadimplencia() {
     const link = generateCalendarLink({
       title: `💎 Cobrança UNA AURA — ${conta.clientes?.nome || 'Cliente'}`,
       date: new Date().toISOString().split('T')[0],
-      details: `Parcela ${conta.parcela}/${conta.total_parcelas}\nValor: R$ ${conta.valor}\nVencimento: ${conta.data_vencimento}\nDescrição: ${conta.descricao || ''}`,
+      details: `Parcela ${conta.parcela}/${conta.total_parcelas}\nValor: ${formatMoney(conta.valor)}\nVencimento: ${conta.data_vencimento}\nDescrição: ${conta.descricao || ''}`,
     });
     window.open(link, '_blank');
     logCobranca(conta.id, 'calendar');
@@ -124,7 +125,7 @@ export default function Inadimplencia() {
     const { error } = await supabase.from('contas_receber').update({
       status: 'recebido',
       data_recebimento: pagtoForm.data,
-      valor: parseFloat(pagtoForm.valor) || selectedConta.valor,
+      valor: toCents(pagtoForm.valor),
     }).eq('id', selectedConta.id);
     if (error) return addToast('Erro: ' + error.message, 'error');
     await logCobranca(selectedConta.id, 'pagamento', 'pago');
@@ -136,7 +137,7 @@ export default function Inadimplencia() {
   function exportarICS(contas) {
     const events = contas.map(c => ({
       id: c.id,
-      title: `Cobrança ${c.clientes?.nome || 'Cliente'} — R$ ${c.valor}`,
+      title: `Cobrança ${c.clientes?.nome || 'Cliente'} — ${formatMoney(c.valor)}`,
       date: new Date().toISOString().split('T')[0],
       details: `Vencimento: ${c.data_vencimento}\n${c.descricao || ''}`,
     }));
@@ -144,7 +145,7 @@ export default function Inadimplencia() {
     addToast('Arquivo .ics exportado! Importe no Google Calendar.');
   }
 
-  const fmt = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+  const fmt = formatMoney;
 
   const filtered = inadimplentes.filter(g => {
     const nome = g.cliente?.nome || '';
@@ -312,7 +313,7 @@ export default function Inadimplencia() {
                             {/* Registrar Pagamento */}
                             <button className="btn btn-sm" title="Registrar pagamento"
                               style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)', border: '1px solid rgba(74,222,128,0.2)' }}
-                              onClick={() => { setSelectedConta(c); setPagtoForm({ valor: c.valor, data: new Date().toISOString().split('T')[0], observacao: '' }); setShowPagtoModal(true); }}>
+                              onClick={() => { setSelectedConta(c); setPagtoForm({ valor: toReal(c.valor), data: new Date().toISOString().split('T')[0], observacao: '' }); setShowPagtoModal(true); }}>
                               <Check size={13} />
                             </button>
                           </div>

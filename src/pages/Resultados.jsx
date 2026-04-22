@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { BarChart3, TrendingUp, TrendingDown, DollarSign, Gem, Package, Lightbulb } from 'lucide-react';
+import { formatMoney } from '../lib/money';
 
 export default function Resultados() {
   const [data, setData] = useState(null);
@@ -67,7 +68,7 @@ export default function Resultados() {
     setLoading(false);
   }
 
-  const fmt = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+  const fmt = formatMoney;
 
   if (loading || !data) return <div className="dashboard-loading"><div className="spinner spinner-lg" /></div>;
 

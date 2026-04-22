@@ -9,6 +9,9 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Safety timeout: never leave loading indefinitely
+    const timeout = setTimeout(() => setLoading(false), 3000);
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setUser(session.user);
@@ -16,7 +19,8 @@ export function AuthProvider({ children }) {
       } else {
         setLoading(false);
       }
-    });
+      clearTimeout(timeout);
+    }).catch(() => { setLoading(false); clearTimeout(timeout); });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
@@ -29,8 +33,9 @@ export function AuthProvider({ children }) {
       setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => { subscription.unsubscribe(); clearTimeout(timeout); };
   }, []);
+
 
   async function fetchProfile(userId) {
     try {

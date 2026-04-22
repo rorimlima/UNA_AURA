@@ -9,5 +9,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken: true,
     detectSessionInUrl: false,
     storageKey: 'una-aura-auth',
+    lock: (name, acquireTimeout, fn) => fn(),
   }
 });
+

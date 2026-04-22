@@ -16,7 +16,10 @@ import {
   X,
   ChevronRight,
   AlertTriangle,
-  TrendingUp
+  TrendingUp,
+  Building2,
+  LineChart,
+  FileCheck2
 } from 'lucide-react';
 import './Layout.css';
 
@@ -34,6 +37,12 @@ const NAV_ITEMS = [
 const NAV_ITEMS_EXTRA = [
   { to: '/inadimplencia', icon: AlertTriangle, label: 'Inadimplência', danger: true },
   { to: '/fluxo-caixa', icon: TrendingUp, label: 'Fluxo de Caixa' },
+  { to: '/conciliacao', icon: FileCheck2, label: 'Conciliação Bancária' },
+  { to: '/crm', icon: LineChart, label: 'CRM · Vendas' },
+];
+
+const NAV_ITEMS_CONFIG = [
+  { to: '/empresa', icon: Building2, label: 'Minha Empresa' },
 ];
 
 export default function Layout() {
@@ -107,6 +116,20 @@ export default function Layout() {
               {item.danger && inadCount > 0 && (
                 <span className="nav-badge">{inadCount > 99 ? '99+' : inadCount}</span>
               )}
+              <ChevronRight size={14} className="sidebar-link-arrow" />
+            </NavLink>
+          ))}
+
+          <div className="nav-section-label" style={{ marginTop: 'var(--space-4)' }}>Configurações</div>
+          {NAV_ITEMS_CONFIG.map(item => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <item.icon size={20} />
+              <span>{item.label}</span>
               <ChevronRight size={14} className="sidebar-link-arrow" />
             </NavLink>
           ))}
