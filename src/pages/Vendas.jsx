@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
-import { Plus, Search, Receipt, X, Trash2, Printer } from 'lucide-react';
+import { Plus, Search, Receipt, X, Trash2, Printer, CheckCircle } from 'lucide-react';
 import { formatMoney, toCents, toReal } from '../lib/money';
 
 const fmt = formatMoney;
@@ -22,12 +22,13 @@ function imprimirRecibo(venda, empresa) {
     </tr>`
   ).join('');
 
-  const parcelasHtml = venda._parcelas?.length > 1
+  // Agrupar parcelas e exibir os métodos de pagamento
+  const parcelasHtml = venda._parcelas?.length > 0
     ? `<div style="margin-top:16px;padding:12px;background:#f9f9f9;border-radius:8px">
-        <div style="font-weight:600;margin-bottom:8px">Parcelas</div>
+        <div style="font-weight:600;margin-bottom:8px">Condições de Pagamento</div>
         ${venda._parcelas.map((p, i) =>
           `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0">
-            <span>${i + 1}ª parcela — ${new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+            <span>${fmtPag[p.forma_pagamento] || p.forma_pagamento} - Venc: ${new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
             <span style="font-weight:600">${fmt(p.valor)}</span>
           </div>`
         ).join('')}
@@ -68,7 +69,7 @@ function imprimirRecibo(venda, empresa) {
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0">
     <div><div class="label">Cliente</div><div class="valor">${venda.clientes?.nome || 'Consumidor'}</div></div>
     <div><div class="label">Vendedor</div><div class="valor">${venda.vendedores?.nome || '—'}</div></div>
-    <div><div class="label">Pagamento</div><div class="valor">${fmtPag[venda.forma_pagamento] || venda.forma_pagamento || '—'}</div></div>
+    <div><div class="label">Múltiplos Pagtos</div><div class="valor">${venda._parcelas?.length || 0} parcelas/lançamentos</div></div>
     <div><div class="label">Status</div><div class="valor">${venda.status || 'finalizada'}</div></div>
   </div>
 
@@ -102,8 +103,9 @@ export default function Vendas() {
   const [empresa, setEmpresa] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ cliente_id: '', vendedor_id: '', data: new Date().toISOString().split('T')[0], numero_pedido: '', observacoes: '', forma_pagamento: 'pix', parcelas: 1, primeiro_vencimento: '' });
+  const [form, setForm] = useState({ cliente_id: '', vendedor_id: '', data: new Date().toISOString().split('T')[0], numero_pedido: '', observacoes: '' });
   const [cart, setCart] = useState([]);
+  const [pagamentos, setPagamentos] = useState([]); // Multiple payments
   const [search, setSearch] = useState('');
 
   useEffect(() => { load(); }, []);
@@ -130,57 +132,103 @@ export default function Vendas() {
   function removeCartItem(idx) { setCart(cart.filter((_, i) => i !== idx)); }
   const cartTotal = cart.reduce((s, i) => s + (i.quantidade * i.valor_unitario), 0);
 
+  function addPagamento() {
+    const defaultData = form.data || new Date().toISOString().split('T')[0];
+    const remanescente = Math.max(0, cartTotal - pagamentosTotal);
+    setPagamentos([...pagamentos, { id: Date.now(), forma_pagamento: 'pix', valor: remanescente, parcelas: 1, primeiro_vencimento: defaultData }]);
+  }
+  function updatePagamento(idx, field, value) {
+    const p = [...pagamentos];
+    p[idx][field] = value;
+    setPagamentos(p);
+  }
+  function removePagamento(idx) { setPagamentos(pagamentos.filter((_, i) => i !== idx)); }
+  const pagamentosTotal = pagamentos.reduce((s, p) => s + (p.valor || 0), 0);
+
+  function openNew() {
+    setForm({ cliente_id: '', vendedor_id: '', data: new Date().toISOString().split('T')[0], numero_pedido: '', observacoes: '' });
+    setCart([]);
+    setPagamentos([]);
+    setShowModal(true);
+  }
+
   async function handleSave(e) {
     e.preventDefault();
     if (cart.length === 0) return addToast('Adicione itens', 'error');
     if (cart.some(i => !i.produto_id)) return addToast('Selecione todos os produtos', 'error');
+    if (pagamentos.length === 0) return addToast('Adicione pelo menos uma forma de pagamento', 'error');
+    if (pagamentosTotal !== cartTotal) return addToast('A soma dos pagamentos não bate com o total da venda', 'error');
+    
     for (const item of cart) {
       const prod = produtos.find(p => p.id === item.produto_id);
       if (prod && (prod.quantidade_estoque || 0) < item.quantidade)
         return addToast(`Estoque insuficiente para "${prod.nome}"`, 'error');
     }
-    const { data: venda, error } = await supabase.from('vendas').insert({
-      cliente_id: form.cliente_id || null, vendedor_id: form.vendedor_id || null,
-      data: form.data, numero_pedido: form.numero_pedido,
-      total: cartTotal, observacoes: form.observacoes,
-      forma_pagamento: form.forma_pagamento, status: 'finalizada'
-    }).select().single();
-    if (error) return addToast('Erro: ' + error.message, 'error');
 
+    // 1. Inserir a venda
+    // Vamos registrar forma_pagamento como Múltiplo para retrocompatibilidade
+    const { data: venda, error } = await supabase.from('vendas').insert({
+      cliente_id: form.cliente_id || null, 
+      vendedor_id: form.vendedor_id || null,
+      data: form.data, 
+      numero_pedido: form.numero_pedido,
+      total: cartTotal, 
+      observacoes: form.observacoes,
+      forma_pagamento: pagamentos.length > 1 ? 'Múltiplo' : pagamentos[0].forma_pagamento,
+      status: 'finalizada'
+    }).select().single();
+    if (error) return addToast('Erro ao salvar venda: ' + error.message, 'error');
+
+    // 2. Inserir itens
     const itens = cart.map(i => ({ venda_id: venda.id, produto_id: i.produto_id, quantidade: i.quantidade, valor_unitario: i.valor_unitario }));
     await supabase.from('vendas_itens').insert(itens);
 
+    // 3. Atualizar estoque
     for (const item of cart) {
       const prod = produtos.find(p => p.id === item.produto_id);
       if (prod) await supabase.from('produtos').update({ quantidade_estoque: Math.max(0, (prod.quantidade_estoque || 0) - item.quantidade) }).eq('id', item.produto_id);
     }
 
-    const parcelas = parseInt(form.parcelas) || 1;
-    const valorParcela = cartTotal / parcelas;
-    const baseVencimento = form.primeiro_vencimento ? new Date(form.primeiro_vencimento + 'T12:00:00') : new Date(form.data + 'T12:00:00');
+    // 4. Gerar parcelas para CADA pagamento adicionado
     const parcelasGeradas = [];
-    for (let i = 0; i < parcelas; i++) {
-      const vencimento = new Date(baseVencimento); vencimento.setMonth(vencimento.getMonth() + i);
-      const dataVenc = vencimento.toISOString().split('T')[0];
-      const parcelaCents = Math.round(valorParcela);
-      parcelasGeradas.push({ data_vencimento: dataVenc, valor: parcelaCents });
-      await supabase.from('contas_receber').insert({
-        venda_id: venda.id, cliente_id: form.cliente_id || null,
-        descricao: `Venda #${form.numero_pedido || venda.id.substring(0, 8)} ${parcelas > 1 ? `(${i + 1}/${parcelas})` : ''}`,
-        valor: parcelaCents, parcela: i + 1, total_parcelas: parcelas,
-        data_vencimento: dataVenc, forma_pagamento: form.forma_pagamento, status: 'pendente'
-      });
+    for (const pag of pagamentos) {
+      const parcelas = parseInt(pag.parcelas) || 1;
+      const valorParcela = Math.round(pag.valor / parcelas);
+      const baseVencimento = new Date((pag.primeiro_vencimento || form.data) + 'T12:00:00');
+      
+      for (let i = 0; i < parcelas; i++) {
+        const vencimento = new Date(baseVencimento); 
+        vencimento.setMonth(vencimento.getMonth() + i);
+        const dataVenc = vencimento.toISOString().split('T')[0];
+        
+        // Compensar erro de arredondamento na última parcela
+        const valFinal = i === parcelas - 1 ? pag.valor - (valorParcela * (parcelas - 1)) : valorParcela;
+
+        const pData = {
+          venda_id: venda.id, 
+          cliente_id: form.cliente_id || null,
+          descricao: `Venda #${form.numero_pedido || venda.id.substring(0, 8)} - ${fmtPag[pag.forma_pagamento] || pag.forma_pagamento} ${parcelas > 1 ? `(${i + 1}/${parcelas})` : ''}`,
+          valor: valFinal, 
+          parcela: i + 1, 
+          total_parcelas: parcelas,
+          data_vencimento: dataVenc, 
+          forma_pagamento: pag.forma_pagamento, 
+          status: 'pendente'
+        };
+
+        parcelasGeradas.push(pData);
+        await supabase.from('contas_receber').insert(pData);
+      }
     }
 
-    // Buscar dados completos para o recibo
+    // 5. Concluir
     const { data: vendaCompleta } = await supabase.from('vendas')
       .select('*, clientes(nome), vendedores(nome), vendas_itens(*, produtos(nome))')
       .eq('id', venda.id).single();
 
-    addToast('Venda registrada!');
-    setShowModal(false); setCart([]);
+    addToast('Venda registrada com sucesso!');
+    setShowModal(false); 
 
-    // Oferecer impressão do recibo
     if (confirm('Venda salva! Deseja imprimir o recibo?')) {
       imprimirRecibo({ ...vendaCompleta, _parcelas: parcelasGeradas }, empresa);
     }
@@ -198,7 +246,7 @@ export default function Vendas() {
     <div className="animate-fade-in">
       <div className="page-header">
         <div><h2 className="page-title">Vendas</h2><p className="page-subtitle">{vendas.length} vendas registradas</p></div>
-        <button className="btn btn-primary" onClick={() => { setForm({ cliente_id: '', vendedor_id: '', data: new Date().toISOString().split('T')[0], numero_pedido: '', observacoes: '', forma_pagamento: 'pix', parcelas: 1, primeiro_vencimento: '' }); setCart([]); setShowModal(true); }}>
+        <button className="btn btn-primary" onClick={openNew}>
           <Plus size={18} /> Nova Venda
         </button>
       </div>
@@ -227,7 +275,11 @@ export default function Vendas() {
                   <td style={{ fontWeight: 600, color: 'var(--color-success)' }}>{fmt(v.total)}</td>
                   <td><span className={`badge ${v.status === 'finalizada' ? 'badge-success' : 'badge-warning'}`}>{v.status}</span></td>
                   <td>
-                    <button className="btn btn-ghost btn-icon btn-sm" title="Imprimir Recibo" onClick={() => imprimirRecibo(v, empresa)}>
+                    <button className="btn btn-ghost btn-icon btn-sm" title="Imprimir Recibo" onClick={async () => {
+                      // Para impressão de vendas antigas, buscamos as parcelas reais
+                      const { data: cRec } = await supabase.from('contas_receber').select('*').eq('venda_id', v.id);
+                      imprimirRecibo({ ...v, _parcelas: cRec || [] }, empresa);
+                    }}>
                       <Printer size={14} />
                     </button>
                   </td>
@@ -255,28 +307,14 @@ export default function Vendas() {
                       <option value="">Sem vendedor</option>{vendedores.map(v => <option key={v.id} value={v.id}>{v.nome}</option>)}
                     </select>
                   </div>
-                  <div className="form-group"><label className="form-label">Data</label><input type="date" className="form-input" value={form.data} onChange={e => setForm({ ...form, data: e.target.value })} /></div>
+                  <div className="form-group"><label className="form-label">Data</label><input type="date" className="form-input" value={form.data} onChange={e => setForm({ ...form, data: e.target.value })} required /></div>
                   <div className="form-group"><label className="form-label">Nº Pedido</label><input className="form-input" value={form.numero_pedido} onChange={e => setForm({ ...form, numero_pedido: e.target.value })} /></div>
-                  <div className="form-group"><label className="form-label">Forma de Pagamento</label>
-                    <select className="form-select" value={form.forma_pagamento} onChange={e => setForm({ ...form, forma_pagamento: e.target.value })}>
-                      <option value="pix">PIX</option><option value="dinheiro">Dinheiro</option>
-                      <option value="credito">Cartão Crédito</option><option value="debito">Cartão Débito</option>
-                      <option value="boleto">Boleto</option><option value="transferencia">Transferência</option>
-                      <option value="cheque">Cheque</option><option value="crediario">💳 Crediário</option>
-                    </select>
-                  </div>
-                  <div className="form-group"><label className="form-label">Nº de Parcelas</label><input type="number" className="form-input" value={form.parcelas} onChange={e => setForm({ ...form, parcelas: e.target.value })} min="1" max="24" /></div>
-                  <div className="form-group" style={{ gridColumn: '1/-1' }}>
-                    <label className="form-label">Primeiro Vencimento</label>
-                    <input type="date" className="form-input" value={form.primeiro_vencimento} onChange={e => setForm({ ...form, primeiro_vencimento: e.target.value })} />
-                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', marginTop: 'var(--space-1)', display: 'block' }}>As parcelas serão geradas mensalmente a partir desta data.</span>
-                  </div>
                 </div>
 
                 {/* Itens */}
-                <div style={{ marginBottom: 'var(--space-4)' }}>
+                <div style={{ marginBottom: 'var(--space-6)', paddingBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-glass-border)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
-                    <h4 style={{ fontFamily: 'var(--font-display)' }}>Itens da Venda</h4>
+                    <h4 style={{ fontFamily: 'var(--font-display)', display: 'flex', alignItems: 'center', gap: 6 }}><Receipt size={18}/> Itens da Venda</h4>
                     <button type="button" className="btn btn-secondary btn-sm" onClick={addToCart}><Plus size={14} /> Item</button>
                   </div>
                   {cart.length === 0 ? <p className="text-muted" style={{ fontSize: 'var(--text-sm)' }}>Nenhum item.</p> : (
@@ -302,6 +340,60 @@ export default function Vendas() {
                   </div>
                 </div>
 
+                {/* Pagamentos */}
+                <div style={{ marginBottom: 'var(--space-4)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
+                    <h4 style={{ fontFamily: 'var(--font-display)' }}>Pagamentos</h4>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={addPagamento}><Plus size={14} /> Adicionar Pagamento</button>
+                  </div>
+                  {pagamentos.length === 0 ? <p className="text-muted" style={{ fontSize: 'var(--text-sm)' }}>Nenhum pagamento registrado.</p> : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                      {pagamentos.map((pag, idx) => (
+                        <div key={pag.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px 1fr 40px', gap: 'var(--space-3)', alignItems: 'end', background: 'rgba(0,0,0,0.02)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-glass-border)' }}>
+                          <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label className="form-label" style={{ fontSize: 11 }}>Forma</label>
+                            <select className="form-select" value={pag.forma_pagamento} onChange={e => updatePagamento(idx, 'forma_pagamento', e.target.value)}>
+                              <option value="pix">PIX</option><option value="dinheiro">Dinheiro</option>
+                              <option value="credito">Cartão Crédito</option><option value="debito">Cartão Débito</option>
+                              <option value="boleto">Boleto</option><option value="transferencia">Transferência</option>
+                              <option value="cheque">Cheque</option><option value="crediario">💳 Crediário</option>
+                            </select>
+                          </div>
+                          <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label className="form-label" style={{ fontSize: 11 }}>Valor</label>
+                            <input type="number" step="0.01" className="form-input" value={toReal(pag.valor)} onChange={e => updatePagamento(idx, 'valor', toCents(e.target.value))} />
+                          </div>
+                          <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label className="form-label" style={{ fontSize: 11 }}>Parcelas</label>
+                            <input type="number" className="form-input" value={pag.parcelas} onChange={e => updatePagamento(idx, 'parcelas', parseInt(e.target.value) || 1)} min="1" max="24" />
+                          </div>
+                          <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label className="form-label" style={{ fontSize: 11 }}>1º Venc.</label>
+                            <input type="date" className="form-input" value={pag.primeiro_vencimento} onChange={e => updatePagamento(idx, 'primeiro_vencimento', e.target.value)} required />
+                          </div>
+                          <button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={() => removePagamento(idx)} style={{ color: 'var(--color-danger)', marginBottom: 8 }}><Trash2 size={16} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginTop: 'var(--space-4)', gap: 'var(--space-4)' }}>
+                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
+                      Total Informado: <strong>{fmt(pagamentosTotal)}</strong>
+                    </div>
+                    {pagamentosTotal !== cartTotal && (
+                      <div style={{ color: 'var(--color-danger)', fontSize: 'var(--text-sm)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <X size={14}/> Diferença de {fmt(Math.abs(cartTotal - pagamentosTotal))}
+                      </div>
+                    )}
+                    {pagamentosTotal === cartTotal && cartTotal > 0 && (
+                      <div style={{ color: 'var(--color-success)', fontSize: 'var(--text-sm)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <CheckCircle size={14}/> Valores batem!
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 <div className="form-group">
                   <label className="form-label">Observações</label>
                   <input className="form-input" value={form.observacoes} onChange={e => setForm({ ...form, observacoes: e.target.value })} placeholder="Opcional..." />
@@ -309,7 +401,7 @@ export default function Vendas() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary">Finalizar Venda</button>
+                <button type="submit" className="btn btn-primary" disabled={pagamentosTotal !== cartTotal || cartTotal === 0}>Finalizar Venda</button>
               </div>
             </form>
           </div>

@@ -19,7 +19,8 @@ import {
   TrendingUp,
   Building2,
   LineChart,
-  FileCheck2
+  FileCheck2,
+  PlayCircle
 } from 'lucide-react';
 import './Layout.css';
 
@@ -43,6 +44,7 @@ const NAV_ITEMS_EXTRA = [
 
 const NAV_ITEMS_CONFIG = [
   { to: '/empresa', icon: Building2, label: 'Minha Empresa' },
+  { to: '/tutorial', icon: PlayCircle, label: 'Ajuda & Tutoriais' },
 ];
 
 export default function Layout() {

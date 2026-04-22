@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
-import { Plus, Search, Edit2, Trash2, Users, Phone, Mail, X } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Users, Phone, Mail, X, FileText } from 'lucide-react';
+import FichaClienteModal from '../components/FichaClienteModal';
 
 export default function Clientes() {
   const { addToast } = useToast();
@@ -11,6 +12,7 @@ export default function Clientes() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm());
+  const [selectedFicha, setSelectedFicha] = useState(null);
 
   function emptyForm() {
     return {
@@ -160,6 +162,9 @@ export default function Clientes() {
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: '4px' }}>
+                      <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setSelectedFicha(c)} title="Ficha Completa">
+                        <FileText size={15} className="text-primary" />
+                      </button>
                       <button className="btn btn-ghost btn-icon btn-sm" onClick={() => openEdit(c)} title="Editar">
                         <Edit2 size={15} />
                       </button>
@@ -240,6 +245,14 @@ export default function Clientes() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Ficha Completa Modal */}
+      {selectedFicha && (
+        <FichaClienteModal 
+          cliente={selectedFicha} 
+          onClose={() => setSelectedFicha(null)} 
+        />
       )}
     </div>
   );
