@@ -146,7 +146,8 @@ export default function Vendas() {
   const pagamentosTotal = pagamentos.reduce((s, p) => s + (p.valor || 0), 0);
 
   function openNew() {
-    setForm({ cliente_id: '', vendedor_id: '', data: new Date().toISOString().split('T')[0], numero_pedido: '', observacoes: '' });
+    const uniqueId = 'PD-' + Date.now().toString(36).toUpperCase();
+    setForm({ cliente_id: '', vendedor_id: '', data: new Date().toISOString().split('T')[0], numero_pedido: uniqueId, observacoes: '' });
     setCart([]);
     setPagamentos([]);
     setShowModal(true);
@@ -308,7 +309,7 @@ export default function Vendas() {
                     </select>
                   </div>
                   <div className="form-group"><label className="form-label">Data</label><input type="date" className="form-input" value={form.data} onChange={e => setForm({ ...form, data: e.target.value })} required /></div>
-                  <div className="form-group"><label className="form-label">Nº Pedido</label><input className="form-input" value={form.numero_pedido} onChange={e => setForm({ ...form, numero_pedido: e.target.value })} /></div>
+                  <div className="form-group"><label className="form-label">Nº Pedido</label><input className="form-input" value={form.numero_pedido} readOnly style={{ backgroundColor: 'rgba(255, 255, 255, 0.05)', cursor: 'not-allowed' }} /></div>
                 </div>
 
                 {/* Itens */}
