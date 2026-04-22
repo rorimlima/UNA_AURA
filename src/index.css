@@ -351,6 +351,12 @@ ul, ol {
   transition: all var(--transition-base);
 }
 
+.form-input:not([type="email"]):not([type="password"]),
+.form-select,
+textarea.form-input {
+  text-transform: uppercase;
+}
+
 .form-input:focus {
   border-color: var(--color-gold);
   box-shadow: 0 0 0 3px rgba(201, 169, 110, 0.1);
