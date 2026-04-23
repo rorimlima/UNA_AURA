@@ -51,7 +51,16 @@ export default function Estoque() {
   async function handleSave(e) {
     e.preventDefault();
     if (!form.nome.trim()) return addToast('Nome obrigatório','error');
-    const payload = { ...form, custo_unitario: toCents(form.custo_unitario), preco_venda: toCents(form.preco_venda), estoque_minimo: parseInt(form.estoque_minimo)||5 };
+    const payload = { 
+      ...form, 
+      nome: (form.nome || '').toUpperCase(),
+      codigo: (form.codigo || '').toUpperCase(),
+      referencia: (form.referencia || '').toUpperCase(),
+      descricao: (form.descricao || '').toUpperCase(),
+      custo_unitario: toCents(form.custo_unitario), 
+      preco_venda: toCents(form.preco_venda), 
+      estoque_minimo: parseInt(form.estoque_minimo)||5 
+    };
     if (editing) {
       const { error } = await supabase.from('produtos').update(payload).eq('id', editing.id);
       if (error) return addToast('Erro: '+error.message,'error');
@@ -152,9 +161,9 @@ export default function Estoque() {
                   <select className="form-select" value={form.categoria} onChange={e => {
                     if (e.target.value === 'NEW') {
                       const nova = window.prompt('Digite o nome da nova categoria:');
-                      if (nova && nova.trim()) setForm({...form, categoria: nova.trim()});
+                      if (nova && nova.trim()) setForm({...form, categoria: nova.trim().toUpperCase()});
                     } else {
-                      setForm({...form, categoria: e.target.value});
+                      setForm({...form, categoria: e.target.value.toUpperCase()});
                     }
                   }}>
                     <option value="">Selecione...</option>
