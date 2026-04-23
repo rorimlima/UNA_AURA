@@ -20,7 +20,8 @@ import {
   Building2,
   LineChart,
   FileCheck2,
-  PlayCircle
+  PlayCircle,
+  Bug
 } from 'lucide-react';
 import './Layout.css';
 
@@ -48,7 +49,7 @@ const NAV_ITEMS_CONFIG = [
 ];
 
 export default function Layout() {
-  const { profile, signOut } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inadCount, setInadCount] = useState(0);
   const location = useLocation();
@@ -135,6 +136,19 @@ export default function Layout() {
               <ChevronRight size={14} className="sidebar-link-arrow" />
             </NavLink>
           ))}
+
+          {(user?.email === 'admin@teste.com' || profile?.role === 'admin') && (
+            <NavLink
+              to="/qa"
+              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+              style={{ marginTop: 'var(--space-2)', color: 'var(--color-primary)' }}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <Bug size={20} />
+              <span>Modo Teste / QA</span>
+              <ChevronRight size={14} className="sidebar-link-arrow" />
+            </NavLink>
+          )}
         </nav>
 
         <div className="sidebar-footer">
