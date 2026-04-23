@@ -147,7 +147,24 @@ export default function Estoque() {
                 <div className="form-group" style={{gridColumn:'span 2'}}><label className="form-label">Nome *</label><input className="form-input" value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} required/></div>
                 <div className="form-group"><label className="form-label">Código</label><input className="form-input" value={form.codigo} onChange={e=>setForm({...form,codigo:e.target.value})}/></div>
                 <div className="form-group"><label className="form-label">Referência</label><input className="form-input" value={form.referencia} onChange={e=>setForm({...form,referencia:e.target.value})}/></div>
-                <div className="form-group"><label className="form-label">Categoria</label><input className="form-input" value={form.categoria} onChange={e=>setForm({...form,categoria:e.target.value})} placeholder="Ex: Anéis, Colares"/></div>
+                <div className="form-group">
+                  <label className="form-label">Categoria</label>
+                  <select className="form-select" value={form.categoria} onChange={e => {
+                    if (e.target.value === 'NEW') {
+                      const nova = window.prompt('Digite o nome da nova categoria:');
+                      if (nova && nova.trim()) setForm({...form, categoria: nova.trim()});
+                    } else {
+                      setForm({...form, categoria: e.target.value});
+                    }
+                  }}>
+                    <option value="">Selecione...</option>
+                    <option value="NEW" style={{fontWeight: 'bold', color: 'var(--color-gold)'}}>+ Nova Categoria</option>
+                    {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                    {form.categoria && form.categoria !== 'NEW' && !categories.includes(form.categoria) && (
+                      <option value={form.categoria}>{form.categoria}</option>
+                    )}
+                  </select>
+                </div>
                 <div className="form-group"><label className="form-label">Estoque Mínimo</label><input type="number" className="form-input" value={form.estoque_minimo} onChange={e=>setForm({...form,estoque_minimo:e.target.value})}/></div>
                 <div className="form-group"><label className="form-label">Custo (R$)</label><input type="number" step="0.01" className="form-input" value={form.custo_unitario} onChange={e=>setForm({...form,custo_unitario:e.target.value})}/></div>
                 <div className="form-group"><label className="form-label">Preço Venda (R$)</label><input type="number" step="0.01" className="form-input" value={form.preco_venda} onChange={e=>setForm({...form,preco_venda:e.target.value})}/></div>
