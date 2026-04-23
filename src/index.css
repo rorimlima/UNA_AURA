@@ -729,7 +729,6 @@ textarea.form-input {
 /* ─── Responsive Utilities ─── */
 @media (max-width: 768px) {
   :root {
-    --sidebar-width: 0px;
     --header-height: 56px;
   }
 
