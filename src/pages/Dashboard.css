@@ -173,8 +173,50 @@
   }
 }
 
+@media (max-width: 768px) {
+  .dashboard-kpis {
+    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dashboard-grid {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dashboard-finance-card,
+  .dashboard-insights-card,
+  .dashboard-stock-alert,
+  .dashboard-birthdays-card {
+    padding: var(--space-4);
+    margin-bottom: var(--space-3);
+  }
+
+  .kpi-card,
+  .insight-item,
+  .stock-alert-item,
+  .birthday-item,
+  .finance-item {
+    min-height: 48px;
+  }
+}
+
 @media (max-width: 640px) {
   .dashboard-kpis {
     grid-template-columns: 1fr;
   }
+}
+
+@keyframes antigravity {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.dashboard-antigravity {
+  animation: antigravity 4s ease-in-out infinite;
 }
