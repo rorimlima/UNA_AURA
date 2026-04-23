@@ -24,6 +24,7 @@ import {
   Bug
 } from 'lucide-react';
 import './Layout.css';
+import OfflineIndicator from './OfflineIndicator';
 
 const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -182,7 +183,8 @@ export default function Layout() {
             </button>
             <h1 className="header-title">{getPageTitle()}</h1>
           </div>
-          <div className="header-right">
+          <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <OfflineIndicator />
             <span className="header-date">
               {new Date().toLocaleDateString('pt-BR', {
                 weekday: 'long',
