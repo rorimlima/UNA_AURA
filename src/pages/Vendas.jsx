@@ -116,7 +116,7 @@ export default function Vendas() {
 
   async function load() {
     const [{ data: v }, { data: c }, { data: p }, { data: vend }, { data: emp }] = await Promise.all([
-      supabase.from('vendas').select('*, clientes(nome), vendedores(nome), vendas_itens(*, produtos(nome))').order('data', { ascending: false }),
+      supabase.from('vendas').select('id, data, numero_pedido, total, status, forma_pagamento, observacoes, cliente_id, vendedor_id, clientes(nome), vendedores(nome), vendas_itens(id, quantidade, valor_unitario, produto_id, produtos(nome))').order('data', { ascending: false }).limit(100),
       supabase.from('clientes').select('id, nome').order('nome'),
       supabase.from('produtos').select('id, nome, preco_venda, quantidade_estoque').eq('ativo', true).order('nome'),
       supabase.from('vendedores').select('id, nome').eq('ativo', true).order('nome'),
@@ -218,7 +218,7 @@ export default function Vendas() {
       if (prod) await supabase.from('produtos').update({ quantidade_estoque: Math.max(0, (prod.quantidade_estoque || 0) - item.quantidade) }).eq('id', item.produto_id);
     }
 
-    // 4. Gerar parcelas para CADA pagamento adicionado
+    // 4. Gerar parcelas para CADA pagamento adicionado (BATCH INSERT otimizado)
     const parcelasGeradas = [];
     for (const pag of pagamentos) {
       const parcelas = parseInt(pag.parcelas) || 1;
@@ -233,7 +233,7 @@ export default function Vendas() {
         // Compensar erro de arredondamento na última parcela
         const valFinal = i === parcelas - 1 ? pag.valor - (valorParcela * (parcelas - 1)) : valorParcela;
 
-        const pData = {
+        parcelasGeradas.push({
           venda_id: venda.id, 
           cliente_id: form.cliente_id || null,
           descricao: `Venda #${form.numero_pedido || venda.id.substring(0, 8)} - ${fmtPag[pag.forma_pagamento] || pag.forma_pagamento} ${parcelas > 1 ? `(${i + 1}/${parcelas})` : ''}`,
@@ -243,11 +243,12 @@ export default function Vendas() {
           data_vencimento: dataVenc, 
           forma_pagamento: pag.forma_pagamento, 
           status: 'pendente'
-        };
-
-        parcelasGeradas.push(pData);
-        await supabase.from('contas_receber').insert(pData);
+        });
       }
+    }
+    // Batch insert — 1 query ao invés de N queries individuais
+    if (parcelasGeradas.length > 0) {
+      await supabase.from('contas_receber').insert(parcelasGeradas);
     }
 
     // 5. Concluir

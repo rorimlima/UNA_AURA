@@ -22,9 +22,9 @@ export default function Financeiro() {
 
   async function load() {
     const [{ data: cp }, { data: cr }, { data: cf }, { data: forn }] = await Promise.all([
-      supabase.from('contas_pagar').select('*, fornecedores(nome)').order('data_vencimento'),
-      supabase.from('contas_receber').select('*, clientes(nome)').order('data_vencimento'),
-      supabase.from('contas_financeiras').select('*').eq('ativa', true).order('nome'),
+      supabase.from('contas_pagar').select('id, descricao, categoria, valor, data_vencimento, data_pagamento, forma_pagamento, status, fornecedor_id, fornecedores(nome)').order('data_vencimento'),
+      supabase.from('contas_receber').select('id, descricao, valor, parcela, total_parcelas, data_vencimento, data_recebimento, forma_pagamento, status, cliente_id, venda_id, clientes(nome)').order('data_vencimento'),
+      supabase.from('contas_financeiras').select('id, nome, tipo, banco, saldo_atual').eq('ativa', true).order('nome'),
       supabase.from('fornecedores').select('id, nome').order('nome'),
     ]);
     setContasPagar(cp || []); setContasReceber(cr || []); setContasFin(cf || []); setFornecedores(forn || []);

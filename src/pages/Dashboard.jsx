@@ -32,21 +32,19 @@ export default function Dashboard() {
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-      // Parallel queries
+      // Parallel queries — otimizado: apenas colunas necessárias, unificado clientes
       const [
         { data: vendas },
-        { data: clientes },
-        { data: clientesData },
+        { data: clientesData, count: clientesCount },
         { data: produtos },
         { data: contasPagar },
         { data: contasReceber },
       ] = await Promise.all([
-        supabase.from('vendas').select('*, vendas_itens(*)').gte('data', startOfMonth),
-        supabase.from('clientes').select('id', { count: 'exact', head: true }),
-        supabase.from('clientes').select('id, nome, data_nascimento').not('data_nascimento', 'is', null),
-        supabase.from('produtos').select('*'),
-        supabase.from('contas_pagar').select('valor, status').eq('status', 'pendente'),
-        supabase.from('contas_receber').select('valor, status').eq('status', 'pendente'),
+        supabase.from('vendas').select('id, data, vendas_itens(quantidade, valor_unitario)').gte('data', startOfMonth),
+        supabase.from('clientes').select('id, nome, data_nascimento', { count: 'exact' }),
+        supabase.from('produtos').select('id, nome, custo_unitario, preco_venda, quantidade_estoque, estoque_minimo'),
+        supabase.from('contas_pagar').select('valor').eq('status', 'pendente'),
+        supabase.from('contas_receber').select('valor').eq('status', 'pendente'),
       ]);
 
       const faturamento = (vendas || []).reduce((sum, v) => {
@@ -93,7 +91,7 @@ export default function Dashboard() {
         faturamento,
         lucro: faturamento * 0.4, // estimated
         totalVendas: (vendas || []).length,
-        totalClientes: clientes?.length || 0,
+        totalClientes: clientesCount || 0,
         estoqueBaixo,
         topProdutos: produtosComMargem.slice(0, 5),
         contasPagar: (contasPagar || []).reduce((s, c) => s + c.valor, 0),

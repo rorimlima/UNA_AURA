@@ -48,10 +48,10 @@ export default defineConfig({
             options: {
               cacheName: 'supabase-api-cache',
               expiration: {
-                maxEntries: 100,
+                maxEntries: 200,
                 maxAgeSeconds: 60 * 60 * 24, // 24 horas
               },
-              networkTimeoutSeconds: 5,
+              networkTimeoutSeconds: 3,
               cacheableResponse: {
                 statuses: [0, 200],
               },
@@ -67,7 +67,7 @@ export default defineConfig({
                 maxEntries: 10,
                 maxAgeSeconds: 60 * 60 * 2, // 2 horas
               },
-              networkTimeoutSeconds: 5,
+              networkTimeoutSeconds: 3,
               cacheableResponse: {
                 statuses: [0, 200],
               },

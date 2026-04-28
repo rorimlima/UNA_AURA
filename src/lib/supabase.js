@@ -9,7 +9,18 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken: true,
     detectSessionInUrl: false,
     storageKey: 'una-aura-auth',
+    flowType: 'pkce',
     lock: (name, acquireTimeout, fn) => fn(),
-  }
+  },
+  global: {
+    headers: { 'x-client-info': 'una-aura-pwa' },
+  },
+  // Desabilitar canal de realtime (não usado neste ERP)
+  // reduz conexões WebSocket desnecessárias em mobile
+  realtime: {
+    params: { eventsPerSecond: 2 },
+  },
+  db: {
+    schema: 'public',
+  },
 });
-

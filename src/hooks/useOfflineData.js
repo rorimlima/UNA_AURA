@@ -86,8 +86,8 @@ export function useOfflineData(table, options = {}) {
           if (remoteError) throw remoteError;
 
           if (remoteData) {
-            // Atualiza cache local
-            await db.clear(table);
+            // Atualiza cache local de forma incremental (evita flicker mobile)
+            // putAll faz upsert — não precisa limpar antes
             await db.putAll(table, remoteData);
             await db.setLastSync(table);
 

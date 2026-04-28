@@ -21,7 +21,11 @@ const SYNC_TABLES = [
   },
   {
     name: 'vendas',
-    query: () => supabase.from('vendas').select('*, clientes(nome), vendedores(nome), vendas_itens(*, produtos(nome))').order('data', { ascending: false }),
+    query: () => {
+      // Limitar vendas aos últimos 30 dias para reduzir payload em mobile
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      return supabase.from('vendas').select('id, data, numero_pedido, total, status, forma_pagamento, observacoes, cliente_id, vendedor_id, clientes(nome), vendedores(nome), vendas_itens(id, quantidade, valor_unitario, produto_id, produtos(nome))').gte('data', thirtyDaysAgo).order('data', { ascending: false });
+    },
     bidirectional: true,
   },
   {
@@ -103,7 +107,7 @@ export async function syncTable(tableName) {
 }
 
 /**
- * Sincroniza TODAS as tabelas (download completo)
+ * Sincroniza TODAS as tabelas (download completo) — PARALELO para velocidade mobile
  */
 export async function syncAll() {
   if (_isSyncing) {
@@ -118,10 +122,19 @@ export async function syncAll() {
   let success = 0;
   let failed = 0;
 
-  for (const table of SYNC_TABLES) {
+  // Sync em paralelo para velocidade mobile (ao invés de sequencial)
+  const promises = SYNC_TABLES.map(async (table) => {
     const ok = await syncTable(table.name);
-    results[table.name] = ok;
-    if (ok) success++; else failed++;
+    return { name: table.name, ok };
+  });
+  const settled = await Promise.allSettled(promises);
+  for (const result of settled) {
+    if (result.status === 'fulfilled') {
+      results[result.value.name] = result.value.ok;
+      if (result.value.ok) success++; else failed++;
+    } else {
+      failed++;
+    }
   }
 
   // Processa fila de operações pendentes
