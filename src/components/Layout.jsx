@@ -23,7 +23,8 @@ import {
   PlayCircle,
   Bug,
   Sun,
-  Moon
+  Moon,
+  UserCheck
 } from 'lucide-react';
 import './Layout.css';
 import OfflineIndicator from './OfflineIndicator';
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
   { to: '/vendas', icon: Receipt, label: 'Vendas' },
   { to: '/clientes', icon: Users, label: 'Clientes' },
   { to: '/fornecedores', icon: Truck, label: 'Fornecedores' },
+  { to: '/vendedores', icon: UserCheck, label: 'Vendedores' },
   { to: '/financeiro', icon: Wallet, label: 'Financeiro' },
   { to: '/resultados', icon: BarChart3, label: 'Resultados' },
 ];

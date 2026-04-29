@@ -10,6 +10,7 @@ import Compras from './pages/Compras';
 import Vendas from './pages/Vendas';
 import Clientes from './pages/Clientes';
 import Fornecedores from './pages/Fornecedores';
+import Vendedores from './pages/Vendedores';
 import Financeiro from './pages/Financeiro';
 import Resultados from './pages/Resultados';
 import Inadimplencia from './pages/Inadimplencia';
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="vendas" element={<Vendas />} />
             <Route path="clientes" element={<Clientes />} />
             <Route path="fornecedores" element={<Fornecedores />} />
+            <Route path="vendedores" element={<Vendedores />} />
             <Route path="financeiro" element={<Financeiro />} />
             <Route path="resultados" element={<Resultados />} />
             <Route path="inadimplencia" element={<Inadimplencia />} />
