@@ -23,6 +23,47 @@ export default function Compras() {
   const [prodDropdowns, setProdDropdowns] = useState({}); // per-row dropdown visibility
   const searchTimers = useRef({});
 
+  // Smart supplier search
+  const [fornSearch, setFornSearch] = useState('');
+  const [showFornDropdown, setShowFornDropdown] = useState(false);
+  const fornDropdownRef = useRef(null);
+
+  // Close supplier dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (fornDropdownRef.current && !fornDropdownRef.current.contains(e.target)) {
+        setShowFornDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  function getFilteredFornecedores() {
+    const q = fornSearch.toLowerCase().trim();
+    if (!q) return fornecedores;
+    return fornecedores.filter(f =>
+      (f.nome || '').toLowerCase().includes(q) ||
+      (f.codigo || '').toLowerCase().includes(q) ||
+      (f.documento || '').toLowerCase().includes(q) ||
+      (f.telefone || '').includes(q) ||
+      (f.email || '').toLowerCase().includes(q)
+    );
+  }
+
+  function selectFornecedor(forn) {
+    setForm(prev => ({ ...prev, fornecedor_id: forn.id }));
+    setFornSearch(forn.nome);
+    setShowFornDropdown(false);
+  }
+
+  function handleFornSearchChange(value) {
+    setFornSearch(value);
+    setShowFornDropdown(value.length > 0 || true);
+    // If cleared, also clear selection
+    if (!value) setForm(prev => ({ ...prev, fornecedor_id: '' }));
+  }
+
   // Smart product search with debounce
   function handleProdSearch(idx, query) {
     setProdSearches(prev => ({ ...prev, [idx]: query }));
@@ -98,6 +139,8 @@ export default function Compras() {
     setForm({ fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
     setCart([]);
     setPagamentos([]);
+    setFornSearch('');
+    setShowFornDropdown(false);
     setShowModal(true);
   }
 
@@ -108,6 +151,8 @@ export default function Compras() {
     if (error) return addToast('Erro: ' + error.message, 'error');
     setFornecedores([...fornecedores, data].sort((a,b)=>a.nome.localeCompare(b.nome)));
     setForm({ ...form, fornecedor_id: data.id });
+    setFornSearch(data.nome);
+    setShowFornDropdown(false);
     setShowNovoFornecedor(false);
     setNovoFornecedorForm({ nome: '', telefone: '' });
     addToast('Fornecedor cadastrado!');
@@ -191,7 +236,7 @@ export default function Compras() {
     await supabase.from('fornecedores').update({ status_financeiro: novoStatus }).eq('id', form.fornecedor_id);
 
     addToast('Compra registrada com sucesso!');
-    setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); load();
+    setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); setFornSearch(''); setShowFornDropdown(false); load();
   }
 
   const fmt = formatMoney;
@@ -273,10 +318,47 @@ export default function Compras() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
                   <div className="form-group"><label className="form-label">Fornecedor *</label>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <select className="form-select" value={form.fornecedor_id} onChange={e => setForm({ ...form, fornecedor_id: e.target.value })} required>
-                        <option value="">Selecione...</option>
-                        {fornecedores.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
-                      </select>
+                      <div ref={fornDropdownRef} style={{ position: 'relative', flex: 1 }}>
+                        <input
+                          className="form-input"
+                          placeholder="🔍 Buscar por nome, código, CNPJ, telefone..."
+                          value={fornSearch}
+                          onChange={e => handleFornSearchChange(e.target.value)}
+                          onFocus={() => setShowFornDropdown(true)}
+                          autoComplete="off"
+                        />
+                        {showFornDropdown && (
+                          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 220, overflowY: 'auto', background: 'var(--color-bg-secondary, #1a1a2e)', border: '1px solid var(--color-glass-border)', borderRadius: '0 0 8px 8px', zIndex: 50, boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
+                            {getFilteredFornecedores().length === 0 ? (
+                              <div style={{ padding: 12, color: 'var(--color-text-muted)', fontSize: 13 }}>Nenhum fornecedor encontrado</div>
+                            ) : getFilteredFornecedores().slice(0, 12).map(f => (
+                              <div
+                                key={f.id}
+                                onClick={() => selectFornecedor(f)}
+                                style={{
+                                  padding: '10px 12px', cursor: 'pointer',
+                                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                  borderBottom: '1px solid rgba(255,255,255,0.05)',
+                                  transition: 'background .15s',
+                                  background: form.fornecedor_id === f.id ? 'rgba(201,169,110,0.15)' : 'transparent'
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'rgba(201,169,110,0.1)'}
+                                onMouseLeave={e => e.currentTarget.style.background = form.fornecedor_id === f.id ? 'rgba(201,169,110,0.15)' : 'transparent'}
+                              >
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                  <span style={{ fontWeight: 600 }}>{f.nome}</span>
+                                  <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
+                                    {f.codigo || ''}{f.documento ? ` • ${f.documento}` : ''}{f.telefone ? ` • ${f.telefone}` : ''}
+                                  </span>
+                                </div>
+                                <span className={`badge ${f.status_financeiro === 'ADIMPLENTE' ? 'badge-success' : f.status_financeiro === 'INADIMPLENTE' ? 'badge-danger' : 'badge-warning'}`} style={{ fontSize: 10 }}>
+                                  {f.status_financeiro || '—'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       <button type="button" className="btn btn-secondary" onClick={() => setShowNovoFornecedor(true)} title="Novo Fornecedor">+</button>
                     </div>
                   </div>
