@@ -75,11 +75,15 @@ export default function Fornecedores() {
     load();
   }
 
-  const filtered = fornecedores.filter(f =>
-    f.nome.toLowerCase().includes(search.toLowerCase()) ||
-    (f.codigo || '').toLowerCase().includes(search.toLowerCase()) ||
-    (f.documento || '').includes(search)
-  );
+  const filtered = fornecedores.filter(f => {
+    const q = search.toLowerCase();
+    return f.nome.toLowerCase().includes(q) ||
+      (f.codigo || '').toLowerCase().includes(q) ||
+      (f.documento || '').includes(search) ||
+      (f.status_financeiro || '').toLowerCase().includes(q) ||
+      (f.email || '').toLowerCase().includes(q) ||
+      (f.telefone || '').includes(search);
+  });
 
   if (loading) return <div className="dashboard-loading"><div className="spinner spinner-lg" /></div>;
 
@@ -96,7 +100,7 @@ export default function Fornecedores() {
       <div className="glass-card" style={{ padding: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
         <div style={{ position: 'relative' }}>
           <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-          <input type="text" className="form-input" placeholder="Buscar por nome, código (FOR-0001) ou documento..."
+          <input type="text" className="form-input" placeholder="🔍 Buscar por nome, código (FOR-0001), documento, status ou telefone..."
             value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: '40px' }} />
         </div>
       </div>

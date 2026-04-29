@@ -152,6 +152,15 @@
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235A5670' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
+[data-theme="light"] .form-input {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .form-input:focus {
+  background: #FFFFFF;
+}
+
 [data-theme="light"] .modal {
   background: #FFFFFF;
   box-shadow: 0 24px 80px rgba(0,0,0,0.15);
@@ -166,9 +175,54 @@
   background: linear-gradient(135deg, #A68B4B 0%, #C9A96E 50%, #A68B4B 100%);
 }
 
+[data-theme="light"] .btn-secondary {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
 [data-theme="light"] .toast {
   background: #FFFFFF;
   box-shadow: var(--shadow-lg);
+}
+
+[data-theme="light"] .data-table tbody td {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+  color: #5A5670;
+}
+
+[data-theme="light"] .data-table thead th {
+  border-bottom-color: rgba(0, 0, 0, 0.1);
+  color: #9490A5;
+}
+
+[data-theme="light"] .data-table tbody tr:hover {
+  background: rgba(201, 169, 110, 0.04);
+}
+
+[data-theme="light"] .data-table tfoot td {
+  border-top-color: rgba(201, 169, 110, 0.3);
+}
+
+[data-theme="light"] .kpi-card {
+  background: #FFFFFF;
+  border-color: rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+[data-theme="light"] .glass-card {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+
+[data-theme="light"] .glass-card:hover {
+  border-color: rgba(201, 169, 110, 0.2);
+  box-shadow: 0 4px 16px rgba(201, 169, 110, 0.08);
+}
+
+[data-theme="light"] .badge-gold {
+  background: rgba(201, 169, 110, 0.12);
+  color: #A68B4B;
 }
 
 [data-theme="light"] ::-webkit-scrollbar-thumb {

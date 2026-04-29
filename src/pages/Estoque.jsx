@@ -105,7 +105,7 @@ export default function Estoque() {
       <div className="glass-card" style={{padding:'var(--space-4)',marginBottom:'var(--space-4)',display:'flex',gap:'var(--space-4)',flexWrap:'wrap'}}>
         <div style={{position:'relative',flex:1,minWidth:200}}>
           <Search size={18} style={{position:'absolute',left:'12px',top:'50%',transform:'translateY(-50%)',color:'var(--color-text-muted)'}}/>
-          <input type="text" className="form-input" placeholder="Buscar por nome, referência ou código..." value={search} onChange={e=>setSearch(e.target.value)} style={{paddingLeft:'40px'}}/>
+          <input type="text" className="form-input" placeholder="🔍 Buscar por referência, nome ou código do produto..." value={search} onChange={e=>setSearch(e.target.value)} style={{paddingLeft:'40px'}}/>
         </div>
         <select className="form-select" value={catFilter} onChange={e=>setCatFilter(e.target.value)} style={{maxWidth:200}}>
           <option value="">Todas categorias</option>
@@ -121,17 +121,20 @@ export default function Estoque() {
             const margem=p.preco_venda>0?((p.preco_venda-p.custo_unitario)/p.preco_venda*100):0;
             return (
               <div key={p.id} className="glass-card" style={{overflow:'hidden'}}>
-                <div style={{height:160,background:'var(--color-glass)',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'}}>
+                <div style={{height:160,background:'var(--color-glass)',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',position:'relative'}}>
                   {p.imagens?.length>0 ? <img src={p.imagens[0]} alt={p.nome} style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <ImageIcon size={40} style={{color:'var(--color-text-muted)'}}/>}
-                </div>
-                <div style={{padding:'var(--space-4)'}}>
                   {p.referencia && (
-                    <div style={{ marginBottom: 'var(--space-2)' }}>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 15, color: 'var(--color-gold)', background: 'linear-gradient(135deg, rgba(201,169,110,0.15), rgba(201,169,110,0.05))', padding: '4px 12px', borderRadius: 8, border: '1px solid rgba(201,169,110,0.25)', letterSpacing: '1px', display: 'inline-block' }}>{p.referencia}</span>
+                    <div style={{ position:'absolute', top: 10, left: 10, background: 'linear-gradient(135deg, rgba(184,145,58,0.95), rgba(201,169,110,0.9))', padding: '6px 14px', borderRadius: 8, boxShadow: '0 4px 16px rgba(184,145,58,0.4)' }}>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 14, color: '#FFF', letterSpacing: '1.5px', textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>{p.referencia}</span>
                     </div>
                   )}
+                </div>
+                <div style={{padding:'var(--space-4)'}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'start',marginBottom:'var(--space-2)'}}>
-                    <div><div style={{fontWeight:600,fontSize:'var(--text-base)'}}>{p.nome}</div>{p.codigo&&<div style={{fontSize:'var(--text-xs)',color:'var(--color-text-muted)'}}>Cód: {p.codigo}</div>}</div>
+                    <div>
+                      <div style={{fontWeight:600,fontSize:'var(--text-base)'}}>{p.nome}</div>
+                      {p.codigo&&<div style={{fontSize:'var(--text-xs)',color:'var(--color-text-muted)'}}>Cód: {p.codigo}</div>}
+                    </div>
                     {p.categoria&&<span className="badge badge-gold">{p.categoria}</span>}
                   </div>
                   <div style={{display:'flex',justifyContent:'space-between',marginBottom:'var(--space-2)',fontSize:'var(--text-sm)'}}>

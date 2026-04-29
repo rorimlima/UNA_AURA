@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
-import { Plus, Search, Edit2, Trash2, Users, Phone, Mail, X, FileText, Hash } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Users, Phone, Mail, X, FileText } from 'lucide-react';
 import FichaClienteModal from '../components/FichaClienteModal';
 import { maskCPF, maskCNPJ, maskPhone } from '../lib/money';
 
@@ -97,12 +97,15 @@ export default function Clientes() {
     return doc;
   }
 
-  const filtered = clientes.filter(c =>
-    c.nome.toLowerCase().includes(search.toLowerCase()) ||
-    (c.codigo || '').toLowerCase().includes(search.toLowerCase()) ||
-    (c.documento || '').includes(search) ||
-    (c.email || '').toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = clientes.filter(c => {
+    const q = search.toLowerCase();
+    return c.nome.toLowerCase().includes(q) ||
+      (c.codigo || '').toLowerCase().includes(q) ||
+      (c.documento || '').includes(search) ||
+      (c.email || '').toLowerCase().includes(q) ||
+      (c.telefone || '').includes(search) ||
+      (c.cidade || '').toLowerCase().includes(q);
+  });
 
   if (loading) return <div className="dashboard-loading"><div className="spinner spinner-lg" /></div>;
 
@@ -124,7 +127,7 @@ export default function Clientes() {
           <input
             type="text"
             className="form-input"
-            placeholder="Buscar por nome, código (CLI-0001), documento ou e-mail..."
+            placeholder="🔍 Buscar por nome, código (CLI-0001), documento, telefone ou cidade..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{ paddingLeft: '40px' }}

@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
-import { Plus, Search, ShoppingCart, X, Trash2, Upload, Eye, CheckCircle } from 'lucide-react';
+import { Plus, Search, ShoppingCart, X, Trash2, DollarSign, TrendingDown } from 'lucide-react';
 import { formatMoney, toCents, toReal } from '../lib/money';
 
 export default function Compras() {
@@ -196,10 +196,19 @@ export default function Compras() {
 
   const fmt = formatMoney;
 
-  const filtered = compras.filter(c =>
-    (c.fornecedores?.nome || '').toLowerCase().includes(search.toLowerCase()) ||
-    (c.numero_nota || '').includes(search)
-  );
+  const filtered = compras.filter(c => {
+    const q = search.toLowerCase();
+    return (c.fornecedores?.nome || '').toLowerCase().includes(q) ||
+      (c.numero_nota || '').toLowerCase().includes(q) ||
+      (c.numero_pedido || '').toLowerCase().includes(q) ||
+      (c.status || '').toLowerCase().includes(q) ||
+      fmt(c.total).includes(search);
+  });
+
+  // KPIs comerciais
+  const totalComprasGeral = compras.reduce((s, c) => s + (c.total || 0), 0);
+  const totalPagas = compras.filter(c => c.status === 'PAGO' || c.status === 'finalizada').reduce((s, c) => s + (c.total || 0), 0);
+  const totalPendente = totalComprasGeral - totalPagas;
 
   if (loading) return <div className="dashboard-loading"><div className="spinner spinner-lg" /></div>;
 
@@ -212,10 +221,17 @@ export default function Compras() {
         </button>
       </div>
 
+      {/* KPIs Comerciais */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
+        <div className="kpi-card"><div className="kpi-icon"><ShoppingCart size={20} /></div><div className="kpi-label">Total em Compras</div><div className="kpi-value" style={{ fontSize: 'var(--text-xl)', fontFamily: 'monospace' }}>{fmt(totalComprasGeral)}</div></div>
+        <div className="kpi-card"><div className="kpi-icon" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}><DollarSign size={20} /></div><div className="kpi-label">Total Pago</div><div className="kpi-value" style={{ fontSize: 'var(--text-xl)', fontFamily: 'monospace', color: 'var(--color-success)' }}>{fmt(totalPagas)}</div></div>
+        <div className="kpi-card"><div className="kpi-icon" style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}><TrendingDown size={20} /></div><div className="kpi-label">Saldo Devedor</div><div className="kpi-value" style={{ fontSize: 'var(--text-xl)', fontFamily: 'monospace', color: totalPendente > 0 ? 'var(--color-danger)' : 'var(--color-success)' }}>{fmt(totalPendente)}</div></div>
+      </div>
+
       <div className="glass-card" style={{ padding: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
         <div style={{ position: 'relative' }}>
           <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-          <input type="text" className="form-input" placeholder="Buscar por fornecedor ou nota..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: '40px' }} />
+          <input type="text" className="form-input" placeholder="🔍 Buscar por fornecedor, nota, pedido, status ou valor..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: '40px' }} />
         </div>
       </div>
 
@@ -224,7 +240,7 @@ export default function Compras() {
       ) : (
         <div className="glass-card" style={{ overflow: 'auto' }}>
           <table className="data-table">
-            <thead><tr><th>Data</th><th>Fornecedor</th><th>Nota</th><th>Itens</th><th>Total</th><th>Status</th></tr></thead>
+            <thead><tr><th>Data</th><th>Fornecedor</th><th>Nota</th><th>Itens</th><th style={{ textAlign: 'right' }}>Total (R$)</th><th>Status</th></tr></thead>
             <tbody>
               {filtered.map(c => (
                 <tr key={c.id}>
@@ -232,11 +248,18 @@ export default function Compras() {
                   <td style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{c.fornecedores?.nome || '—'}</td>
                   <td>{c.numero_nota || '—'}</td>
                   <td>{c.compras_itens?.length || 0}</td>
-                  <td style={{ fontWeight: 600, fontFamily: 'monospace', letterSpacing: '0.5px' }}>{fmt(c.total)}</td>
+                  <td style={{ fontWeight: 600, fontFamily: 'monospace', letterSpacing: '0.5px', textAlign: 'right' }}>{fmt(c.total)}</td>
                   <td><span className={`badge ${c.status === 'PAGO' || c.status === 'finalizada' ? 'badge-success' : c.status === 'PARCIAL' ? 'badge-warning' : 'badge-danger'}`}>{c.status}</span></td>
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr style={{ borderTop: '2px solid var(--color-gold)' }}>
+                <td colSpan={4} style={{ textAlign: 'right', fontWeight: 700, fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Filtrado:</td>
+                <td style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 'var(--text-base)', color: 'var(--color-gold)', textAlign: 'right' }}>{fmt(filtered.reduce((s, c) => s + (c.total || 0), 0))}</td>
+                <td></td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}

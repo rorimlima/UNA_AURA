@@ -295,3 +295,46 @@
     display: none;
   }
 }
+
+/* ─── Light Theme ─── */
+[data-theme="light"] .sidebar {
+  background: #FFFFFF;
+  border-right-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .sidebar-header {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .sidebar-logo-img {
+  filter: none;
+}
+
+[data-theme="light"] .sidebar-link {
+  color: #5A5670;
+}
+
+[data-theme="light"] .sidebar-link:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: #1A1A2E;
+}
+
+[data-theme="light"] .sidebar-link.active {
+  background: rgba(201, 169, 110, 0.1);
+  color: #A68B4B;
+}
+
+[data-theme="light"] .sidebar-footer {
+  border-top-color: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .top-header {
+  background: rgba(255, 255, 255, 0.95);
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .sidebar-overlay {
+  background: rgba(0, 0, 0, 0.2);
+}

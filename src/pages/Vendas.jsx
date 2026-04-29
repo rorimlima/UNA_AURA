@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
-import { Plus, Search, Receipt, X, Trash2, Printer, CheckCircle } from 'lucide-react';
+import { Plus, Search, Receipt, X, Trash2, Printer, CheckCircle, DollarSign, TrendingUp } from 'lucide-react';
 import { formatMoney, toCents, toReal } from '../lib/money';
 
 const fmt = formatMoney;
@@ -15,7 +15,7 @@ function imprimirRecibo(venda, empresa) {
 
   const itensHtml = (venda.vendas_itens || []).map((i, idx) =>
     `<tr style="background:${idx % 2 === 0 ? '#FAFAF7' : '#FFFFFF'}">
-      <td style="padding:10px 14px;font-size:13px;color:#444">${i.produtos?.nome || '—'}</td>
+      <td style="padding:10px 14px;font-size:13px;color:#444">${i.produtos?.referencia ? `<span style="font-family:'Courier New',monospace;font-weight:700;color:#B8913A;font-size:11px;margin-right:6px">${i.produtos.referencia}</span>` : ''}${i.produtos?.nome || '—'}</td>
       <td style="padding:10px 14px;text-align:center;font-size:13px;color:#666">${i.quantidade}</td>
       <td style="padding:10px 14px;text-align:right;font-size:13px;font-family:'Courier New',monospace;color:#666">${fmt(i.valor_unitario)}</td>
       <td style="padding:10px 14px;text-align:right;font-size:13px;font-family:'Courier New',monospace;font-weight:700;color:#1a1a2e">${fmt(i.quantidade * i.valor_unitario)}</td>
@@ -91,6 +91,8 @@ function imprimirRecibo(venda, empresa) {
     <div>
       <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#B8913A;margin-bottom:4px">Cliente</div>
       <div style="font-size:14px;font-weight:600;color:#333">${venda.clientes?.nome || 'Consumidor Final'}</div>
+      ${venda.clientes?.documento ? `<div style="font-size:11px;color:#888;margin-top:2px">${venda.clientes.tipo === 'PF' ? 'CPF' : 'CNPJ'}: ${venda.clientes.documento}</div>` : ''}
+      ${venda.clientes?.telefone ? `<div style="font-size:11px;color:#888">Tel: ${venda.clientes.telefone}</div>` : ''}
     </div>
     <div>
       <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#B8913A;margin-bottom:4px">Vendedor</div>
@@ -225,7 +227,7 @@ export default function Vendas() {
 
   async function load() {
     const [{ data: v }, { data: c }, { data: p }, { data: vend }, { data: emp }] = await Promise.all([
-      supabase.from('vendas').select('id, data, numero_pedido, total, status, forma_pagamento, observacoes, cliente_id, vendedor_id, clientes(nome), vendedores(nome), vendas_itens(id, quantidade, valor_unitario, produto_id, produtos(nome))').order('data', { ascending: false }).limit(100),
+      supabase.from('vendas').select('id, data, numero_pedido, total, status, forma_pagamento, observacoes, cliente_id, vendedor_id, clientes(nome, documento, telefone, tipo), vendedores(nome), vendas_itens(id, quantidade, valor_unitario, produto_id, produtos(nome, referencia))').order('data', { ascending: false }).limit(100),
       supabase.from('clientes').select('id, nome, codigo').order('nome'),
       supabase.from('produtos').select('id, nome, codigo, referencia, preco_venda, quantidade_estoque').eq('ativo', true).order('nome'),
       supabase.from('vendedores').select('id, nome').eq('ativo', true).order('nome'),
@@ -377,10 +379,17 @@ export default function Vendas() {
     load();
   }
 
-  const filtered = vendas.filter(v =>
-    (v.clientes?.nome || '').toLowerCase().includes(search.toLowerCase()) ||
-    (v.numero_pedido || '').includes(search)
-  );
+  const filtered = vendas.filter(v => {
+    const q = search.toLowerCase();
+    return (v.clientes?.nome || '').toLowerCase().includes(q) ||
+      (v.numero_pedido || '').toLowerCase().includes(q) ||
+      (v.vendedores?.nome || '').toLowerCase().includes(q) ||
+      (v.status || '').toLowerCase().includes(q) ||
+      fmt(v.total).includes(search);
+  });
+
+  // KPIs comerciais
+  const totalVendasGeral = vendas.reduce((s, v) => s + (v.total || 0), 0);
 
   if (loading) return <div className="dashboard-loading"><div className="spinner spinner-lg" /></div>;
 
@@ -393,10 +402,17 @@ export default function Vendas() {
         </button>
       </div>
 
+      {/* KPIs de Vendas */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
+        <div className="kpi-card"><div className="kpi-icon" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}><TrendingUp size={20} /></div><div className="kpi-label">Faturamento Total</div><div className="kpi-value" style={{ fontSize: 'var(--text-xl)', fontFamily: 'monospace', color: 'var(--color-success)' }}>{fmt(totalVendasGeral)}</div></div>
+        <div className="kpi-card"><div className="kpi-icon"><Receipt size={20} /></div><div className="kpi-label">Ticket Médio</div><div className="kpi-value" style={{ fontSize: 'var(--text-xl)', fontFamily: 'monospace' }}>{vendas.length > 0 ? fmt(Math.round(totalVendasGeral / vendas.length)) : 'R$ 0,00'}</div></div>
+        <div className="kpi-card"><div className="kpi-icon"><DollarSign size={20} /></div><div className="kpi-label">Total de Vendas</div><div className="kpi-value" style={{ fontSize: 'var(--text-xl)' }}>{vendas.length}</div></div>
+      </div>
+
       <div className="glass-card" style={{ padding: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
         <div style={{ position: 'relative' }}>
           <Search size={18} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-          <input type="text" className="form-input" placeholder="Buscar por cliente ou pedido..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: 40 }} />
+          <input type="text" className="form-input" placeholder="🔍 Buscar por cliente, pedido, vendedor, status ou valor..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: 40 }} />
         </div>
       </div>
 
@@ -405,7 +421,7 @@ export default function Vendas() {
       ) : (
         <div className="glass-card" style={{ overflow: 'auto' }}>
           <table className="data-table">
-            <thead><tr><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Pedido</th><th>Itens</th><th>Total</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Data</th><th>Cliente</th><th>Vendedor</th><th>Pedido</th><th>Itens</th><th style={{ textAlign: 'right' }}>Total (R$)</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {filtered.map(v => (
                 <tr key={v.id}>
@@ -414,7 +430,7 @@ export default function Vendas() {
                   <td style={{ color: 'var(--color-text-muted)' }}>{v.vendedores?.nome || '—'}</td>
                   <td>{v.numero_pedido || '—'}</td>
                   <td>{v.vendas_itens?.length || 0}</td>
-                  <td style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-success)' }}>{fmt(v.total)}</td>
+                  <td style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-success)', textAlign: 'right' }}>{fmt(v.total)}</td>
                   <td><span className={`badge ${v.status === 'finalizada' ? 'badge-success' : 'badge-warning'}`}>{v.status}</span></td>
                   <td>
                     <button className="btn btn-sm" title="Gerar Recibo" style={{ background: 'rgba(201,169,110,0.1)', color: 'var(--color-gold)', border: '1px solid rgba(201,169,110,0.2)', gap: '4px', fontWeight: 600 }} onClick={async () => {
@@ -427,6 +443,13 @@ export default function Vendas() {
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr style={{ borderTop: '2px solid var(--color-gold)' }}>
+                <td colSpan={5} style={{ textAlign: 'right', fontWeight: 700, fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Filtrado:</td>
+                <td style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 'var(--text-base)', color: 'var(--color-gold)', textAlign: 'right' }}>{fmt(filtered.reduce((s, v) => s + (v.total || 0), 0))}</td>
+                <td colSpan={2}></td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}
