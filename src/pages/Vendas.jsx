@@ -211,8 +211,8 @@ export default function Vendas() {
       const q = value.trim();
       const { data } = await supabase
         .from('clientes')
-        .select('id, nome, codigo, documento, telefone')
-        .or(`nome.ilike.%${q}%,codigo.ilike.%${q}%`)
+        .select('id, nome, codigo, tipo, documento, telefone, email, status_financeiro')
+        .or(`nome.ilike.%${q}%,codigo.ilike.%${q}%,documento.ilike.%${q}%,telefone.ilike.%${q}%`)
         .order('nome')
         .limit(15);
       setClienteResults(data || []);
@@ -230,7 +230,7 @@ export default function Vendas() {
 
   function selectCliente(c) {
     setForm(prev => ({ ...prev, cliente_id: c.id }));
-    setClienteSearch(`${c.codigo || ''} ${c.nome}`.trim());
+    setClienteSearch(`${c.codigo ? c.codigo + ' ' : ''}${c.nome}`.trim());
     setShowClienteDropdown(false);
   }
 
@@ -265,7 +265,7 @@ export default function Vendas() {
   async function load() {
     const [{ data: v }, { data: c }, { data: p }, { data: vend }, { data: emp }] = await Promise.all([
       supabase.from('vendas').select('id, data, numero_pedido, total, status, forma_pagamento, observacoes, cliente_id, vendedor_id, clientes(nome, documento, telefone, tipo), vendedores(nome), vendas_itens(id, quantidade, valor_unitario, produto_id, produtos(nome, referencia))').order('data', { ascending: false }).limit(100),
-      supabase.from('clientes').select('id, nome, codigo').order('nome'),
+      supabase.from('clientes').select('id, nome, codigo, tipo, documento, telefone, email, status_financeiro').order('nome'),
       supabase.from('produtos').select('id, nome, codigo, referencia, preco_venda, quantidade_estoque').eq('ativo', true).order('nome'),
       supabase.from('vendedores').select('id, nome').eq('ativo', true).order('nome'),
       supabase.from('empresa').select('*').limit(1).maybeSingle(),
@@ -311,7 +311,7 @@ export default function Vendas() {
   async function handleSaveNovoCliente(e) {
     e.preventDefault();
     if (!novoClienteForm.nome) return addToast('Nome obrigatório', 'error');
-    const { data, error } = await supabase.from('clientes').insert({ nome: novoClienteForm.nome, telefone: novoClienteForm.telefone, ativo: true }).select().single();
+    const { data, error } = await supabase.from('clientes').insert({ nome: novoClienteForm.nome, telefone: novoClienteForm.telefone }).select().single();
     if (error) return addToast('Erro: ' + error.message, 'error');
     setClientes([...clientes, data].sort((a,b)=>a.nome.localeCompare(b.nome)));
     setForm({ ...form, cliente_id: data.id });
@@ -404,7 +404,12 @@ export default function Vendas() {
       await supabase.from('contas_receber').insert(parcelasGeradas);
     }
 
-    // 5. Concluir
+    // 5. Recalcular status financeiro do cliente
+    if (form.cliente_id) {
+      await supabase.rpc('recalcular_status_cliente', { p_cliente_id: form.cliente_id }).catch(() => {});
+    }
+
+    // 6. Concluir
     const { data: vendaCompleta } = await supabase.from('vendas')
       .select('*, clientes(nome), vendedores(nome), vendas_itens(*, produtos(nome))')
       .eq('id', venda.id).single();
@@ -503,7 +508,7 @@ export default function Vendas() {
                   <div className="form-group"><label className="form-label">Cliente</label>
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <div ref={clienteDropdownRef} style={{ position: 'relative', flex: 1 }}>
-                        <input className="form-input" placeholder="🔍 Buscar por nome ou código (CLI-0001)..." value={clienteSearch} onChange={e => handleClienteSearch(e.target.value)} onFocus={handleClienteFocus} autoComplete="off" />
+                        <input className="form-input" placeholder="🔍 Buscar por nome, código (CLI-0001), CPF/CNPJ ou telefone..." value={clienteSearch} onChange={e => handleClienteSearch(e.target.value)} onFocus={handleClienteFocus} autoComplete="off" />
                         {showClienteDropdown && (
                           <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 220, overflowY: 'auto', background: 'var(--color-bg-secondary, #1a1a2e)', border: '1px solid var(--color-glass-border)', borderRadius: '0 0 8px 8px', zIndex: 50, boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
                             <div onClick={() => { setForm(prev => ({...prev, cliente_id: ''})); setClienteSearch('Sem cliente'); setShowClienteDropdown(false); }} style={{ padding: '8px 12px', cursor: 'pointer', color: 'var(--color-text-muted)', fontStyle: 'italic', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>Sem cliente</div>
@@ -519,12 +524,15 @@ export default function Vendas() {
                                 background: form.cliente_id === c.id ? 'rgba(201,169,110,0.15)' : 'transparent'
                               }} onMouseEnter={e => e.currentTarget.style.background='rgba(201,169,110,0.1)'} onMouseLeave={e => e.currentTarget.style.background = form.cliente_id === c.id ? 'rgba(201,169,110,0.15)' : 'transparent'}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                  <span style={{ fontWeight: 600 }}>{c.nome}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-gold)', fontSize: 11, background: 'rgba(201,169,110,0.1)', padding: '1px 6px', borderRadius: 4 }}>{c.codigo || '—'}</span>
+                                    <span style={{ fontWeight: 600 }}>{c.nome}</span>
+                                  </div>
                                   <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
-                                    {c.codigo || ''}{c.documento ? ` • ${c.documento}` : ''}{c.telefone ? ` • ${c.telefone}` : ''}
+                                    {c.documento ? c.documento : ''}{c.telefone ? ` • ${c.telefone}` : ''}
                                   </span>
                                 </div>
-                                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-gold)', fontSize: 12 }}>{c.codigo || ''}</span>
+                                <span className={`badge ${c.status_financeiro === 'ADIMPLENTE' ? 'badge-success' : c.status_financeiro === 'INADIMPLENTE' ? 'badge-danger' : c.status_financeiro === 'PARCIAL' ? 'badge-warning' : 'badge-gold'}`} style={{ fontSize: 10 }}>{c.status_financeiro || 'ADIMPLENTE'}</span>
                               </div>
                             ))}
                           </div>

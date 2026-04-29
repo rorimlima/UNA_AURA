@@ -57,8 +57,8 @@ export default function Compras() {
       const q = value.trim();
       const { data } = await supabase
         .from('fornecedores')
-        .select('id, nome, codigo, documento, telefone, email, status_financeiro')
-        .or(`nome.ilike.%${q}%,codigo.ilike.%${q}%,documento.ilike.%${q}%`)
+        .select('id, nome, tipo, documento, telefone, email')
+        .or(`nome.ilike.%${q}%,documento.ilike.%${q}%,telefone.ilike.%${q}%,email.ilike.%${q}%`)
         .order('nome')
         .limit(15);
       setFornSearchResults(data || []);
@@ -113,7 +113,7 @@ export default function Compras() {
   async function load() {
     const [{ data: c }, { data: f }, { data: p }] = await Promise.all([
       supabase.from('compras').select('*, fornecedores(nome), compras_itens(*, produtos(nome))').order('data', { ascending: false }),
-      supabase.from('fornecedores').select('id, nome, status_financeiro').order('nome'),
+      supabase.from('fornecedores').select('id, nome, tipo, documento, telefone, email').order('nome'),
       supabase.from('produtos').select('id, nome, codigo, referencia, custo_unitario').eq('ativo', true).order('nome'),
     ]);
     setCompras(c || []); setFornecedores(f || []); setProdutos(p || []);
@@ -164,7 +164,7 @@ export default function Compras() {
   async function handleSaveNovoFornecedor(e) {
     e.preventDefault();
     if (!novoFornecedorForm.nome) return addToast('Nome obrigatório', 'error');
-    const { data, error } = await supabase.from('fornecedores').insert({ nome: novoFornecedorForm.nome, telefone: novoFornecedorForm.telefone, ativo: true }).select().single();
+    const { data, error } = await supabase.from('fornecedores').insert({ nome: novoFornecedorForm.nome, telefone: novoFornecedorForm.telefone }).select().single();
     if (error) return addToast('Erro: ' + error.message, 'error');
     setFornecedores([...fornecedores, data].sort((a,b)=>a.nome.localeCompare(b.nome)));
     setForm({ ...form, fornecedor_id: data.id });
@@ -367,11 +367,11 @@ export default function Compras() {
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                   <span style={{ fontWeight: 600 }}>{f.nome}</span>
                                   <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
-                                    {f.codigo || ''}{f.documento ? ` • ${f.documento}` : ''}{f.telefone ? ` • ${f.telefone}` : ''}
+                                    {f.documento ? f.documento : ''}{f.telefone ? ` • ${f.telefone}` : ''}{f.email ? ` • ${f.email}` : ''}
                                   </span>
                                 </div>
-                                <span className={`badge ${f.status_financeiro === 'ADIMPLENTE' ? 'badge-success' : f.status_financeiro === 'INADIMPLENTE' ? 'badge-danger' : 'badge-warning'}`} style={{ fontSize: 10 }}>
-                                  {f.status_financeiro || '—'}
+                                <span className={`badge ${f.tipo === 'PJ' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: 10 }}>
+                                  {f.tipo || 'PJ'}
                                 </span>
                               </div>
                             ))}

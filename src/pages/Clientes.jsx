@@ -34,12 +34,7 @@ export default function Clientes() {
     setLoading(false);
   }
 
-  /** Gera código único: CLI-0001 */
-  async function gerarCodigoCliente() {
-    const { count } = await supabase.from('clientes').select('*', { count: 'exact', head: true });
-    const seq = (count || 0) + 1;
-    return `CLI-${String(seq).padStart(4, '0')}`;
-  }
+  const [statusFilter, setStatusFilter] = useState('todos');
 
   function openNew() {
     setEditing(null);
@@ -69,8 +64,7 @@ export default function Clientes() {
       if (error) return addToast('Erro ao atualizar: ' + error.message, 'error');
       addToast('Cliente atualizado com sucesso!');
     } else {
-      // Gerar código único
-      if (!payload.codigo) payload.codigo = await gerarCodigoCliente();
+      // Código gerado automaticamente pelo trigger do banco
       const { error } = await supabase.from('clientes').insert(payload);
       if (error) return addToast('Erro ao cadastrar: ' + error.message, 'error');
       addToast('Cliente cadastrado com sucesso!');
@@ -99,13 +93,21 @@ export default function Clientes() {
 
   const filtered = clientes.filter(c => {
     const q = search.toLowerCase();
-    return c.nome.toLowerCase().includes(q) ||
+    const matchSearch = c.nome.toLowerCase().includes(q) ||
       (c.codigo || '').toLowerCase().includes(q) ||
       (c.documento || '').includes(search) ||
       (c.email || '').toLowerCase().includes(q) ||
       (c.telefone || '').includes(search) ||
-      (c.cidade || '').toLowerCase().includes(q);
+      (c.cidade || '').toLowerCase().includes(q) ||
+      (c.status_financeiro || '').toLowerCase().includes(q);
+    const matchStatus = statusFilter === 'todos' || c.status_financeiro === statusFilter;
+    return matchSearch && matchStatus;
   });
+
+  // KPIs de clientes
+  const totalAdimplentes = clientes.filter(c => c.status_financeiro === 'ADIMPLENTE').length;
+  const totalInadimplentes = clientes.filter(c => c.status_financeiro === 'INADIMPLENTE').length;
+  const totalParciais = clientes.filter(c => c.status_financeiro === 'PARCIAL').length;
 
   if (loading) return <div className="dashboard-loading"><div className="spinner spinner-lg" /></div>;
 
@@ -121,13 +123,37 @@ export default function Clientes() {
         </button>
       </div>
 
+      {/* KPIs de Status */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
+        <div className="kpi-card" style={{ cursor: 'pointer', outline: statusFilter === 'todos' ? '2px solid var(--color-gold)' : 'none' }} onClick={() => setStatusFilter('todos')}>
+          <div className="kpi-icon"><Users size={20} /></div>
+          <div className="kpi-label">Total Clientes</div>
+          <div className="kpi-value" style={{ fontSize: 'var(--text-xl)' }}>{clientes.length}</div>
+        </div>
+        <div className="kpi-card" style={{ cursor: 'pointer', outline: statusFilter === 'ADIMPLENTE' ? '2px solid var(--color-success)' : 'none' }} onClick={() => setStatusFilter(statusFilter === 'ADIMPLENTE' ? 'todos' : 'ADIMPLENTE')}>
+          <div className="kpi-icon" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}><Users size={20} /></div>
+          <div className="kpi-label">Adimplentes</div>
+          <div className="kpi-value" style={{ fontSize: 'var(--text-xl)', color: 'var(--color-success)' }}>{totalAdimplentes}</div>
+        </div>
+        <div className="kpi-card" style={{ cursor: 'pointer', outline: statusFilter === 'INADIMPLENTE' ? '2px solid var(--color-danger)' : 'none' }} onClick={() => setStatusFilter(statusFilter === 'INADIMPLENTE' ? 'todos' : 'INADIMPLENTE')}>
+          <div className="kpi-icon" style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}><Users size={20} /></div>
+          <div className="kpi-label">Inadimplentes</div>
+          <div className="kpi-value" style={{ fontSize: 'var(--text-xl)', color: 'var(--color-danger)' }}>{totalInadimplentes}</div>
+        </div>
+        <div className="kpi-card" style={{ cursor: 'pointer', outline: statusFilter === 'PARCIAL' ? '2px solid var(--color-warning)' : 'none' }} onClick={() => setStatusFilter(statusFilter === 'PARCIAL' ? 'todos' : 'PARCIAL')}>
+          <div className="kpi-icon" style={{ background: 'rgba(251,191,36,0.15)', color: 'var(--color-warning)' }}><Users size={20} /></div>
+          <div className="kpi-label">Parciais</div>
+          <div className="kpi-value" style={{ fontSize: 'var(--text-xl)', color: 'var(--color-warning)' }}>{totalParciais}</div>
+        </div>
+      </div>
+
       <div className="glass-card" style={{ padding: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
         <div style={{ position: 'relative' }}>
           <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
           <input
             type="text"
             className="form-input"
-            placeholder="🔍 Buscar por nome, código (CLI-0001), documento, telefone ou cidade..."
+            placeholder="🔍 Buscar por nome, código (CLI-0001), documento, telefone, status ou cidade..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{ paddingLeft: '40px' }}
@@ -151,7 +177,7 @@ export default function Clientes() {
                 <th>Tipo</th>
                 <th>Documento</th>
                 <th>Telefone</th>
-                <th>Email</th>
+                <th>Status Fin.</th>
                 <th style={{ width: 100 }}>Ações</th>
               </tr>
             </thead>
@@ -170,11 +196,9 @@ export default function Clientes() {
                     ) : '—'}
                   </td>
                   <td>
-                    {c.email ? (
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Mail size={13} /> {c.email}
-                      </span>
-                    ) : '—'}
+                    <span className={`badge ${c.status_financeiro === 'ADIMPLENTE' ? 'badge-success' : c.status_financeiro === 'INADIMPLENTE' ? 'badge-danger' : c.status_financeiro === 'PARCIAL' ? 'badge-warning' : 'badge-gold'}`} style={{ fontSize: 11 }}>
+                      {c.status_financeiro || 'ADIMPLENTE'}
+                    </span>
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: '4px' }}>

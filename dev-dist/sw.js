@@ -79,7 +79,7 @@ define(['./workbox-137dedbd'], (function (workbox) { 'use strict';
    */
   workbox.precacheAndRoute([{
     "url": "index.html",
-    "revision": "0.5d86vg30c24"
+    "revision": "0.bsrjfuc84m"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
@@ -87,9 +87,9 @@ define(['./workbox-137dedbd'], (function (workbox) { 'use strict';
   }));
   workbox.registerRoute(/^https:\/\/.*\.supabase\.co\/rest\/v1\/.*/i, new workbox.NetworkFirst({
     "cacheName": "supabase-api-cache",
-    "networkTimeoutSeconds": 5,
+    "networkTimeoutSeconds": 3,
     plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 100,
+      maxEntries: 200,
       maxAgeSeconds: 86400
     }), new workbox.CacheableResponsePlugin({
       statuses: [0, 200]
@@ -97,7 +97,7 @@ define(['./workbox-137dedbd'], (function (workbox) { 'use strict';
   }), 'GET');
   workbox.registerRoute(/^https:\/\/.*\.supabase\.co\/auth\/.*/i, new workbox.NetworkFirst({
     "cacheName": "supabase-auth-cache",
-    "networkTimeoutSeconds": 5,
+    "networkTimeoutSeconds": 3,
     plugins: [new workbox.ExpirationPlugin({
       maxEntries: 10,
       maxAgeSeconds: 7200
