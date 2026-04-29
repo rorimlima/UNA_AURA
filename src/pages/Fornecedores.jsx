@@ -8,6 +8,7 @@ export default function Fornecedores() {
   const [fornecedores, setFornecedores] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('todos');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm());
@@ -28,12 +29,7 @@ export default function Fornecedores() {
     setLoading(false);
   }
 
-  /** Gera código único: FOR-0001 */
-  async function gerarCodigoFornecedor() {
-    const { count } = await supabase.from('fornecedores').select('*', { count: 'exact', head: true });
-    const seq = (count || 0) + 1;
-    return `FOR-${String(seq).padStart(4, '0')}`;
-  }
+
 
   function openNew() { setEditing(null); setForm(emptyForm()); setShowModal(true); }
 
@@ -57,8 +53,7 @@ export default function Fornecedores() {
       if (error) return addToast('Erro ao atualizar: ' + error.message, 'error');
       addToast('Fornecedor atualizado!');
     } else {
-      if (!payload.codigo) payload.codigo = await gerarCodigoFornecedor();
-      if (!payload.status_financeiro) payload.status_financeiro = 'ADIMPLENTE';
+      // Código gerado automaticamente pelo trigger do banco (FORN-0001...)
       const { error } = await supabase.from('fornecedores').insert(payload);
       if (error) return addToast('Erro ao cadastrar: ' + error.message, 'error');
       addToast('Fornecedor cadastrado!');
@@ -77,13 +72,21 @@ export default function Fornecedores() {
 
   const filtered = fornecedores.filter(f => {
     const q = search.toLowerCase();
-    return f.nome.toLowerCase().includes(q) ||
+    const matchSearch = f.nome.toLowerCase().includes(q) ||
       (f.codigo || '').toLowerCase().includes(q) ||
       (f.documento || '').includes(search) ||
       (f.status_financeiro || '').toLowerCase().includes(q) ||
       (f.email || '').toLowerCase().includes(q) ||
-      (f.telefone || '').includes(search);
+      (f.telefone || '').includes(search) ||
+      (f.cidade || '').toLowerCase().includes(q);
+    const matchStatus = statusFilter === 'todos' || f.status_financeiro === statusFilter;
+    return matchSearch && matchStatus;
   });
+
+  // KPIs de fornecedores
+  const totalAdimplentes = fornecedores.filter(f => f.status_financeiro === 'ADIMPLENTE').length;
+  const totalInadimplentes = fornecedores.filter(f => f.status_financeiro === 'INADIMPLENTE').length;
+  const totalParciais = fornecedores.filter(f => f.status_financeiro === 'PARCIAL').length;
 
   if (loading) return <div className="dashboard-loading"><div className="spinner spinner-lg" /></div>;
 
@@ -97,10 +100,34 @@ export default function Fornecedores() {
         <button className="btn btn-primary" onClick={openNew}><Plus size={18} /> Novo Fornecedor</button>
       </div>
 
+      {/* KPIs de Status */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
+        <div className="kpi-card" style={{ cursor: 'pointer', outline: statusFilter === 'todos' ? '2px solid var(--color-gold)' : 'none' }} onClick={() => setStatusFilter('todos')}>
+          <div className="kpi-icon"><Truck size={20} /></div>
+          <div className="kpi-label">Total Fornecedores</div>
+          <div className="kpi-value" style={{ fontSize: 'var(--text-xl)' }}>{fornecedores.length}</div>
+        </div>
+        <div className="kpi-card" style={{ cursor: 'pointer', outline: statusFilter === 'ADIMPLENTE' ? '2px solid var(--color-success)' : 'none' }} onClick={() => setStatusFilter(statusFilter === 'ADIMPLENTE' ? 'todos' : 'ADIMPLENTE')}>
+          <div className="kpi-icon" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}><Truck size={20} /></div>
+          <div className="kpi-label">Adimplentes</div>
+          <div className="kpi-value" style={{ fontSize: 'var(--text-xl)', color: 'var(--color-success)' }}>{totalAdimplentes}</div>
+        </div>
+        <div className="kpi-card" style={{ cursor: 'pointer', outline: statusFilter === 'INADIMPLENTE' ? '2px solid var(--color-danger)' : 'none' }} onClick={() => setStatusFilter(statusFilter === 'INADIMPLENTE' ? 'todos' : 'INADIMPLENTE')}>
+          <div className="kpi-icon" style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}><Truck size={20} /></div>
+          <div className="kpi-label">Inadimplentes</div>
+          <div className="kpi-value" style={{ fontSize: 'var(--text-xl)', color: 'var(--color-danger)' }}>{totalInadimplentes}</div>
+        </div>
+        <div className="kpi-card" style={{ cursor: 'pointer', outline: statusFilter === 'PARCIAL' ? '2px solid var(--color-warning)' : 'none' }} onClick={() => setStatusFilter(statusFilter === 'PARCIAL' ? 'todos' : 'PARCIAL')}>
+          <div className="kpi-icon" style={{ background: 'rgba(251,191,36,0.15)', color: 'var(--color-warning)' }}><Truck size={20} /></div>
+          <div className="kpi-label">Parciais</div>
+          <div className="kpi-value" style={{ fontSize: 'var(--text-xl)', color: 'var(--color-warning)' }}>{totalParciais}</div>
+        </div>
+      </div>
+
       <div className="glass-card" style={{ padding: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
         <div style={{ position: 'relative' }}>
           <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-          <input type="text" className="form-input" placeholder="🔍 Buscar por nome, código (FOR-0001), documento, status ou telefone..."
+          <input type="text" className="form-input" placeholder="🔍 Buscar por nome, código (FORN-0001), documento, status ou telefone..."
             value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: '40px' }} />
         </div>
       </div>

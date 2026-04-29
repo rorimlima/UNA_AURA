@@ -57,8 +57,8 @@ export default function Compras() {
       const q = value.trim();
       const { data } = await supabase
         .from('fornecedores')
-        .select('id, nome, tipo, documento, telefone, email')
-        .or(`nome.ilike.%${q}%,documento.ilike.%${q}%,telefone.ilike.%${q}%,email.ilike.%${q}%`)
+        .select('id, nome, codigo, tipo, documento, telefone, email, status_financeiro')
+        .or(`nome.ilike.%${q}%,codigo.ilike.%${q}%,documento.ilike.%${q}%,telefone.ilike.%${q}%`)
         .order('nome')
         .limit(15);
       setFornSearchResults(data || []);
@@ -76,7 +76,7 @@ export default function Compras() {
 
   function selectFornecedor(forn) {
     setForm(prev => ({ ...prev, fornecedor_id: forn.id }));
-    setFornSearch(forn.nome);
+    setFornSearch(`${forn.codigo ? forn.codigo + ' ' : ''}${forn.nome}`.trim());
     setShowFornDropdown(false);
   }
 
@@ -113,7 +113,7 @@ export default function Compras() {
   async function load() {
     const [{ data: c }, { data: f }, { data: p }] = await Promise.all([
       supabase.from('compras').select('*, fornecedores(nome), compras_itens(*, produtos(nome))').order('data', { ascending: false }),
-      supabase.from('fornecedores').select('id, nome, tipo, documento, telefone, email').order('nome'),
+      supabase.from('fornecedores').select('id, nome, codigo, tipo, documento, telefone, email, status_financeiro').order('nome'),
       supabase.from('produtos').select('id, nome, codigo, referencia, custo_unitario').eq('ativo', true).order('nome'),
     ]);
     setCompras(c || []); setFornecedores(f || []); setProdutos(p || []);
@@ -243,14 +243,8 @@ export default function Compras() {
     }
     if (parcelasGeradas.length > 0) await supabase.from('contas_pagar').insert(parcelasGeradas);
 
-    // REGRA CRÍTICA: Atualizar status do fornecedor
-    // Verificar total de compras vs total pago para o fornecedor
-    const { data: todasCompras } = await supabase.from('compras').select('total').eq('fornecedor_id', form.fornecedor_id);
-    const { data: todosPagos } = await supabase.from('contas_pagar').select('valor').eq('fornecedor_id', form.fornecedor_id).eq('status', 'pago');
-    const totalComprasForn = (todasCompras || []).reduce((s, c) => s + (c.total || 0), 0);
-    const totalPagoForn = (todosPagos || []).reduce((s, p) => s + (p.valor || 0), 0);
-    const novoStatus = totalPagoForn >= totalComprasForn ? 'ADIMPLENTE' : 'INADIMPLENTE';
-    await supabase.from('fornecedores').update({ status_financeiro: novoStatus }).eq('id', form.fornecedor_id);
+    // Recalcular status financeiro do fornecedor via RPC
+    await supabase.rpc('recalcular_status_fornecedor', { p_fornecedor_id: form.fornecedor_id }).catch(() => {});
 
     addToast('Compra registrada com sucesso!');
     setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); setFornSearch(''); setShowFornDropdown(false); setFornSearchResults([]); load();
@@ -338,7 +332,7 @@ export default function Compras() {
                       <div ref={fornDropdownRef} style={{ position: 'relative', flex: 1 }}>
                         <input
                           className="form-input"
-                          placeholder="🔍 Buscar por nome, código, CNPJ, telefone..."
+                          placeholder="🔍 Buscar por nome, código (FORN-0001), CNPJ, telefone..."
                           value={fornSearch}
                           onChange={e => handleFornSearchChange(e.target.value)}
                           onFocus={handleFornFocus}
@@ -365,13 +359,16 @@ export default function Compras() {
                                 onMouseLeave={e => e.currentTarget.style.background = form.fornecedor_id === f.id ? 'rgba(201,169,110,0.15)' : 'transparent'}
                               >
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                  <span style={{ fontWeight: 600 }}>{f.nome}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-gold)', fontSize: 11, background: 'rgba(201,169,110,0.1)', padding: '1px 6px', borderRadius: 4 }}>{f.codigo || '—'}</span>
+                                    <span style={{ fontWeight: 600 }}>{f.nome}</span>
+                                  </div>
                                   <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
-                                    {f.documento ? f.documento : ''}{f.telefone ? ` • ${f.telefone}` : ''}{f.email ? ` • ${f.email}` : ''}
+                                    {f.documento ? f.documento : ''}{f.telefone ? ` • ${f.telefone}` : ''}
                                   </span>
                                 </div>
-                                <span className={`badge ${f.tipo === 'PJ' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: 10 }}>
-                                  {f.tipo || 'PJ'}
+                                <span className={`badge ${f.status_financeiro === 'ADIMPLENTE' ? 'badge-success' : f.status_financeiro === 'INADIMPLENTE' ? 'badge-danger' : f.status_financeiro === 'PARCIAL' ? 'badge-warning' : 'badge-gold'}`} style={{ fontSize: 10 }}>
+                                  {f.status_financeiro || 'ADIMPLENTE'}
                                 </span>
                               </div>
                             ))}
