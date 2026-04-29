@@ -298,7 +298,6 @@ export default function Compras() {
                             <td style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-gold)' }}>{fmt(item.quantidade * item.valor_unitario)}</td>
                             <td><button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={() => removeCartItem(idx)} style={{ color: 'var(--color-danger)' }}><Trash2 size={14} /></button></td>
                           </tr>
-                          </tr>
                           );
                         })}
                       </tbody>
