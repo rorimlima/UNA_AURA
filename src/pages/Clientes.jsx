@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
-import { Plus, Search, Edit2, Trash2, Users, Phone, Mail, X, FileText } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Users, Phone, Mail, X, FileText, Hash } from 'lucide-react';
 import FichaClienteModal from '../components/FichaClienteModal';
+import { maskCPF, maskCNPJ, maskPhone } from '../lib/money';
 
 export default function Clientes() {
   const { addToast } = useToast();
@@ -28,9 +29,16 @@ export default function Clientes() {
     const { data, error } = await supabase
       .from('clientes')
       .select('*')
-      .order('nome');
+      .order('created_at', { ascending: false });
     if (!error) setClientes(data || []);
     setLoading(false);
+  }
+
+  /** Gera código único: CLI-0001 */
+  async function gerarCodigoCliente() {
+    const { count } = await supabase.from('clientes').select('*', { count: 'exact', head: true });
+    const seq = (count || 0) + 1;
+    return `CLI-${String(seq).padStart(4, '0')}`;
   }
 
   function openNew() {
@@ -61,6 +69,8 @@ export default function Clientes() {
       if (error) return addToast('Erro ao atualizar: ' + error.message, 'error');
       addToast('Cliente atualizado com sucesso!');
     } else {
+      // Gerar código único
+      if (!payload.codigo) payload.codigo = await gerarCodigoCliente();
       const { error } = await supabase.from('clientes').insert(payload);
       if (error) return addToast('Erro ao cadastrar: ' + error.message, 'error');
       addToast('Cliente cadastrado com sucesso!');
@@ -89,6 +99,7 @@ export default function Clientes() {
 
   const filtered = clientes.filter(c =>
     c.nome.toLowerCase().includes(search.toLowerCase()) ||
+    (c.codigo || '').toLowerCase().includes(search.toLowerCase()) ||
     (c.documento || '').includes(search) ||
     (c.email || '').toLowerCase().includes(search.toLowerCase())
   );
@@ -113,7 +124,7 @@ export default function Clientes() {
           <input
             type="text"
             className="form-input"
-            placeholder="Buscar por nome, documento ou e-mail..."
+            placeholder="Buscar por nome, código (CLI-0001), documento ou e-mail..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{ paddingLeft: '40px' }}
@@ -132,6 +143,7 @@ export default function Clientes() {
           <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: 110 }}>Código</th>
                 <th>Nome</th>
                 <th>Tipo</th>
                 <th>Documento</th>
@@ -143,6 +155,7 @@ export default function Clientes() {
             <tbody>
               {filtered.map(c => (
                 <tr key={c.id}>
+                  <td><span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-gold)', background: 'rgba(201,169,110,0.1)', padding: '2px 8px', borderRadius: 6, fontSize: 13 }}>{c.codigo || '—'}</span></td>
                   <td style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{c.nome}</td>
                   <td><span className="badge badge-gold">{c.tipo}</span></td>
                   <td>{formatDoc(c.documento, c.tipo)}</td>

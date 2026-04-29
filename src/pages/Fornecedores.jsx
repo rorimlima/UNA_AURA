@@ -23,9 +23,16 @@ export default function Fornecedores() {
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const { data, error } = await supabase.from('fornecedores').select('*').order('nome');
+    const { data, error } = await supabase.from('fornecedores').select('*').order('created_at', { ascending: false });
     if (!error) setFornecedores(data || []);
     setLoading(false);
+  }
+
+  /** Gera código único: FOR-0001 */
+  async function gerarCodigoFornecedor() {
+    const { count } = await supabase.from('fornecedores').select('*', { count: 'exact', head: true });
+    const seq = (count || 0) + 1;
+    return `FOR-${String(seq).padStart(4, '0')}`;
   }
 
   function openNew() { setEditing(null); setForm(emptyForm()); setShowModal(true); }
@@ -50,6 +57,8 @@ export default function Fornecedores() {
       if (error) return addToast('Erro ao atualizar: ' + error.message, 'error');
       addToast('Fornecedor atualizado!');
     } else {
+      if (!payload.codigo) payload.codigo = await gerarCodigoFornecedor();
+      if (!payload.status_financeiro) payload.status_financeiro = 'ADIMPLENTE';
       const { error } = await supabase.from('fornecedores').insert(payload);
       if (error) return addToast('Erro ao cadastrar: ' + error.message, 'error');
       addToast('Fornecedor cadastrado!');
@@ -68,6 +77,7 @@ export default function Fornecedores() {
 
   const filtered = fornecedores.filter(f =>
     f.nome.toLowerCase().includes(search.toLowerCase()) ||
+    (f.codigo || '').toLowerCase().includes(search.toLowerCase()) ||
     (f.documento || '').includes(search)
   );
 
@@ -86,7 +96,7 @@ export default function Fornecedores() {
       <div className="glass-card" style={{ padding: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
         <div style={{ position: 'relative' }}>
           <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-          <input type="text" className="form-input" placeholder="Buscar fornecedores..."
+          <input type="text" className="form-input" placeholder="Buscar por nome, código (FOR-0001) ou documento..."
             value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: '40px' }} />
         </div>
       </div>
@@ -102,7 +112,9 @@ export default function Fornecedores() {
           <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: 110 }}>Código</th>
                 <th>Nome</th>
+                <th>Status</th>
                 <th>Tipo</th>
                 <th>Documento</th>
                 <th>Telefone</th>
@@ -113,7 +125,9 @@ export default function Fornecedores() {
             <tbody>
               {filtered.map(f => (
                 <tr key={f.id}>
+                  <td><span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-gold)', background: 'rgba(201,169,110,0.1)', padding: '2px 8px', borderRadius: 6, fontSize: 13 }}>{f.codigo || '—'}</span></td>
                   <td style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{f.nome}</td>
+                  <td><span className={`badge ${f.status_financeiro === 'ADIMPLENTE' ? 'badge-success' : f.status_financeiro === 'INADIMPLENTE' ? 'badge-danger' : 'badge-warning'}`}>{f.status_financeiro || '—'}</span></td>
                   <td><span className="badge badge-gold">{f.tipo}</span></td>
                   <td>{f.documento || '—'}</td>
                   <td>{f.telefone ? <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Phone size={13} /> {f.telefone}</span> : '—'}</td>

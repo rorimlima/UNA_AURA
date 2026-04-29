@@ -82,7 +82,7 @@ export default function Estoque() {
   const fmt = formatMoney;
   const categories = [...new Set(produtos.map(p=>p.categoria).filter(Boolean))];
   const filtered = produtos.filter(p => {
-    const ms = p.nome.toLowerCase().includes(search.toLowerCase()) || (p.codigo||'').toLowerCase().includes(search.toLowerCase());
+    const ms = p.nome.toLowerCase().includes(search.toLowerCase()) || (p.codigo||'').toLowerCase().includes(search.toLowerCase()) || (p.referencia||'').toLowerCase().includes(search.toLowerCase());
     return ms && (!catFilter || p.categoria === catFilter);
   });
   const totalCusto = produtos.reduce((s,p)=>s+(p.custo_unitario||0)*(p.quantidade_estoque||0),0);
@@ -105,7 +105,7 @@ export default function Estoque() {
       <div className="glass-card" style={{padding:'var(--space-4)',marginBottom:'var(--space-4)',display:'flex',gap:'var(--space-4)',flexWrap:'wrap'}}>
         <div style={{position:'relative',flex:1,minWidth:200}}>
           <Search size={18} style={{position:'absolute',left:'12px',top:'50%',transform:'translateY(-50%)',color:'var(--color-text-muted)'}}/>
-          <input type="text" className="form-input" placeholder="Buscar..." value={search} onChange={e=>setSearch(e.target.value)} style={{paddingLeft:'40px'}}/>
+          <input type="text" className="form-input" placeholder="Buscar por nome, referência ou código..." value={search} onChange={e=>setSearch(e.target.value)} style={{paddingLeft:'40px'}}/>
         </div>
         <select className="form-select" value={catFilter} onChange={e=>setCatFilter(e.target.value)} style={{maxWidth:200}}>
           <option value="">Todas categorias</option>
@@ -125,13 +125,18 @@ export default function Estoque() {
                   {p.imagens?.length>0 ? <img src={p.imagens[0]} alt={p.nome} style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <ImageIcon size={40} style={{color:'var(--color-text-muted)'}}/>}
                 </div>
                 <div style={{padding:'var(--space-4)'}}>
+                  {p.referencia && (
+                    <div style={{ marginBottom: 'var(--space-2)' }}>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 15, color: 'var(--color-gold)', background: 'linear-gradient(135deg, rgba(201,169,110,0.15), rgba(201,169,110,0.05))', padding: '4px 12px', borderRadius: 8, border: '1px solid rgba(201,169,110,0.25)', letterSpacing: '1px', display: 'inline-block' }}>{p.referencia}</span>
+                    </div>
+                  )}
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'start',marginBottom:'var(--space-2)'}}>
-                    <div><div style={{fontWeight:600}}>{p.nome}</div>{p.codigo&&<div style={{fontSize:'var(--text-xs)',color:'var(--color-text-muted)'}}>Cód: {p.codigo}</div>}</div>
+                    <div><div style={{fontWeight:600,fontSize:'var(--text-base)'}}>{p.nome}</div>{p.codigo&&<div style={{fontSize:'var(--text-xs)',color:'var(--color-text-muted)'}}>Cód: {p.codigo}</div>}</div>
                     {p.categoria&&<span className="badge badge-gold">{p.categoria}</span>}
                   </div>
                   <div style={{display:'flex',justifyContent:'space-between',marginBottom:'var(--space-2)',fontSize:'var(--text-sm)'}}>
                     <span className="text-muted">Custo: {fmt(p.custo_unitario)}</span>
-                    <span style={{fontWeight:600,color:'var(--color-gold)'}}>{fmt(p.preco_venda)}</span>
+                    <span style={{fontWeight:700,color:'var(--color-gold)',fontFamily:'monospace',fontSize:'var(--text-base)'}}>{fmt(p.preco_venda)}</span>
                   </div>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                     <span className={`badge ${isLow?'badge-danger':'badge-success'}`}>{p.quantidade_estoque||0} un.</span>

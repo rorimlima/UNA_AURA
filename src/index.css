@@ -118,6 +118,63 @@
   --z-toast: 500;
 }
 
+/* ─── TEMA CLARO ─── */
+[data-theme="light"] {
+  --color-bg-primary: #FAFAF7;
+  --color-bg-secondary: #FFFFFF;
+  --color-bg-tertiary: #F5F3EE;
+  --color-bg-card: #FFFFFF;
+  --color-bg-hover: #F0EDE6;
+  --color-bg-elevated: #FFFFFF;
+
+  --color-surface: rgba(255, 255, 255, 0.9);
+  --color-glass: rgba(0, 0, 0, 0.03);
+  --color-glass-border: rgba(0, 0, 0, 0.08);
+  --color-glass-hover: rgba(0, 0, 0, 0.05);
+
+  --color-text-primary: #1A1A2E;
+  --color-text-secondary: #5A5670;
+  --color-text-muted: #9490A5;
+
+  --gradient-card: linear-gradient(145deg, rgba(255,255,255,0.95) 0%, rgba(250,248,243,0.8) 100%);
+  --gradient-dark: linear-gradient(180deg, #FAFAF7 0%, #F5F3EE 100%);
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.1);
+  --shadow-xl: 0 16px 48px rgba(0,0,0,0.12);
+  --shadow-gold: 0 4px 24px rgba(201,169,110,0.12);
+  --shadow-gold-lg: 0 8px 40px rgba(201,169,110,0.18);
+}
+
+[data-theme="light"] .form-select {
+  background-color: #FFFFFF;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235A5670' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+[data-theme="light"] .modal {
+  background: #FFFFFF;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.15);
+}
+
+[data-theme="light"] .modal-backdrop {
+  background: rgba(0,0,0,0.3);
+}
+
+[data-theme="light"] .btn-primary {
+  color: #FFFFFF;
+  background: linear-gradient(135deg, #A68B4B 0%, #C9A96E 50%, #A68B4B 100%);
+}
+
+[data-theme="light"] .toast {
+  background: #FFFFFF;
+  box-shadow: var(--shadow-lg);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.12);
+}
+
 /* ─── Reset & Base ─── */
 *, *::before, *::after {
   margin: 0;
@@ -139,6 +196,7 @@ body {
   line-height: 1.6;
   min-height: 100vh;
   overflow-x: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 #root {

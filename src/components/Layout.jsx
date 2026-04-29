@@ -21,7 +21,9 @@ import {
   LineChart,
   FileCheck2,
   PlayCircle,
-  Bug
+  Bug,
+  Sun,
+  Moon
 } from 'lucide-react';
 import './Layout.css';
 import OfflineIndicator from './OfflineIndicator';
@@ -53,7 +55,18 @@ export default function Layout() {
   const { user, profile, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inadCount, setInadCount] = useState(0);
+  const [theme, setTheme] = useState(() => localStorage.getItem('una-theme') || 'dark');
   const location = useLocation();
+
+  // Aplicar tema no HTML
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('una-theme', theme);
+  }, [theme]);
+
+  function toggleTheme() {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  }
 
   useEffect(() => {
     // Badge count for inadimplência
@@ -184,6 +197,14 @@ export default function Layout() {
             <h1 className="header-title">{getPageTitle()}</h1>
           </div>
           <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              className="btn btn-ghost btn-icon"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Tema Claro' : 'Tema Escuro'}
+              style={{ borderRadius: 'var(--radius-full)', transition: 'all 0.3s' }}
+            >
+              {theme === 'dark' ? <Sun size={18} style={{ color: 'var(--color-gold)' }} /> : <Moon size={18} style={{ color: 'var(--color-gold)' }} />}
+            </button>
             <OfflineIndicator />
             <span className="header-date">
               {new Date().toLocaleDateString('pt-BR', {

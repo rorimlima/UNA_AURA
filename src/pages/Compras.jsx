@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
-import { Plus, Search, ShoppingCart, X, Trash2, Upload, Eye } from 'lucide-react';
+import { Plus, Search, ShoppingCart, X, Trash2, Upload, Eye, CheckCircle } from 'lucide-react';
 import { formatMoney, toCents, toReal } from '../lib/money';
 
 export default function Compras() {
@@ -19,6 +19,35 @@ export default function Compras() {
   const [novoFornecedorForm, setNovoFornecedorForm] = useState({ nome: '', telefone: '' });
   const [showNovoProduto, setShowNovoProduto] = useState(false);
   const [novoProdutoForm, setNovoProdutoForm] = useState({ nome: '', custo_unitario: '' });
+  const [prodSearches, setProdSearches] = useState({}); // per-row product search
+  const [prodDropdowns, setProdDropdowns] = useState({}); // per-row dropdown visibility
+  const searchTimers = useRef({});
+
+  // Smart product search with debounce
+  function handleProdSearch(idx, query) {
+    setProdSearches(prev => ({ ...prev, [idx]: query }));
+    clearTimeout(searchTimers.current[idx]);
+    searchTimers.current[idx] = setTimeout(() => {
+      setProdDropdowns(prev => ({ ...prev, [idx]: query.length > 0 }));
+    }, 300);
+  }
+
+  function getFilteredProducts(idx) {
+    const q = (prodSearches[idx] || '').toLowerCase();
+    if (!q) return produtos;
+    return produtos.filter(p =>
+      (p.nome || '').toLowerCase().includes(q) ||
+      (p.codigo || '').toLowerCase().includes(q) ||
+      (p.referencia || '').toLowerCase().includes(q) ||
+      toReal(p.custo_unitario).toFixed(2).includes(q)
+    );
+  }
+
+  function selectProduct(idx, prod) {
+    updateCartItem(idx, 'produto_id', prod.id);
+    setProdSearches(prev => ({ ...prev, [idx]: `${prod.referencia || ''} ${prod.nome}`.trim() }));
+    setProdDropdowns(prev => ({ ...prev, [idx]: false }));
+  }
 
   const fmtPag = { pix: 'PIX', dinheiro: 'Dinheiro', credito: 'Cartão Crédito', debito: 'Cartão Débito', boleto: 'Boleto', deposito: 'Depósito' };
 
@@ -27,8 +56,8 @@ export default function Compras() {
   async function load() {
     const [{ data: c }, { data: f }, { data: p }] = await Promise.all([
       supabase.from('compras').select('*, fornecedores(nome), compras_itens(*, produtos(nome))').order('data', { ascending: false }),
-      supabase.from('fornecedores').select('id, nome').order('nome'),
-      supabase.from('produtos').select('id, nome, custo_unitario').eq('ativo', true).order('nome'),
+      supabase.from('fornecedores').select('id, nome, status_financeiro').order('nome'),
+      supabase.from('produtos').select('id, nome, codigo, referencia, custo_unitario').eq('ativo', true).order('nome'),
     ]);
     setCompras(c || []); setFornecedores(f || []); setProdutos(p || []);
     setLoading(false);
@@ -104,9 +133,16 @@ export default function Compras() {
     if (pagamentos.length === 0) return addToast('Adicione pelo menos uma forma de pagamento', 'error');
     if (pagamentosTotal !== cartTotal) return addToast('A soma dos pagamentos não bate com o total da compra', 'error');
 
+    // Determinar status: PENDENTE, PARCIAL, PAGO
+    let statusCompra = 'PENDENTE';
+    const pgtoImediato = pagamentos.filter(p => ['pix','dinheiro','debito','deposito'].includes(p.forma_pagamento));
+    const totalImediato = pgtoImediato.reduce((s, p) => s + (p.valor || 0), 0);
+    if (totalImediato >= cartTotal) statusCompra = 'PAGO';
+    else if (totalImediato > 0) statusCompra = 'PARCIAL';
+
     const { data: compra, error } = await supabase.from('compras').insert({
       fornecedor_id: form.fornecedor_id, data: form.data, numero_nota: form.numero_nota,
-      numero_pedido: form.numero_pedido, total: cartTotal, observacoes: form.observacoes, status: 'finalizada'
+      numero_pedido: form.numero_pedido, total: cartTotal, observacoes: form.observacoes, status: statusCompra
     }).select().single();
 
     if (error) return addToast('Erro: ' + error.message, 'error');
@@ -117,7 +153,6 @@ export default function Compras() {
     // Update stock
     for (const item of cart) {
       await supabase.rpc('increment_stock', { p_id: item.produto_id, qty: item.quantidade }).catch(() => {
-        // fallback: manual update
         supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single().then(({ data: prod }) => {
           supabase.from('produtos').update({ quantidade_estoque: (prod?.quantidade_estoque || 0) + item.quantidade }).eq('id', item.produto_id);
         });
@@ -125,34 +160,38 @@ export default function Compras() {
     }
 
     // Create contas_pagar para cada pagamento
+    const parcelasGeradas = [];
     for (const pag of pagamentos) {
       const parcelas = parseInt(pag.parcelas) || 1;
       const valorParcela = Math.round(pag.valor / parcelas);
       const baseVencimento = new Date((pag.primeiro_vencimento || form.data) + 'T12:00:00');
-      
       for (let i = 0; i < parcelas; i++) {
         const vencimento = new Date(baseVencimento); 
         vencimento.setMonth(vencimento.getMonth() + i);
         const dataVenc = vencimento.toISOString().split('T')[0];
-        
-        // Compensar erro de arredondamento na última parcela
         const valFinal = i === parcelas - 1 ? pag.valor - (valorParcela * (parcelas - 1)) : valorParcela;
-
-        await supabase.from('contas_pagar').insert({
-          compra_id: compra.id, 
-          fornecedor_id: form.fornecedor_id,
+        parcelasGeradas.push({
+          compra_id: compra.id, fornecedor_id: form.fornecedor_id,
           descricao: `Compra #${form.numero_nota || compra.id.substring(0, 8)} - ${fmtPag[pag.forma_pagamento] || pag.forma_pagamento} ${parcelas > 1 ? `(${i + 1}/${parcelas})` : ''}`,
-          categoria: 'mercadoria', 
-          valor: valFinal, 
-          data_vencimento: dataVenc, 
+          categoria: 'mercadoria', valor: valFinal, data_vencimento: dataVenc, 
           forma_pagamento: pag.forma_pagamento,
-          status: 'pendente'
+          status: ['pix','dinheiro','debito','deposito'].includes(pag.forma_pagamento) ? 'pago' : 'pendente'
         });
       }
     }
+    if (parcelasGeradas.length > 0) await supabase.from('contas_pagar').insert(parcelasGeradas);
+
+    // REGRA CRÍTICA: Atualizar status do fornecedor
+    // Verificar total de compras vs total pago para o fornecedor
+    const { data: todasCompras } = await supabase.from('compras').select('total').eq('fornecedor_id', form.fornecedor_id);
+    const { data: todosPagos } = await supabase.from('contas_pagar').select('valor').eq('fornecedor_id', form.fornecedor_id).eq('status', 'pago');
+    const totalComprasForn = (todasCompras || []).reduce((s, c) => s + (c.total || 0), 0);
+    const totalPagoForn = (todosPagos || []).reduce((s, p) => s + (p.valor || 0), 0);
+    const novoStatus = totalPagoForn >= totalComprasForn ? 'ADIMPLENTE' : 'INADIMPLENTE';
+    await supabase.from('fornecedores').update({ status_financeiro: novoStatus }).eq('id', form.fornecedor_id);
 
     addToast('Compra registrada com sucesso!');
-    setShowModal(false); setCart([]); setPagamentos([]); load();
+    setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); load();
   }
 
   const fmt = formatMoney;
@@ -193,8 +232,8 @@ export default function Compras() {
                   <td style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{c.fornecedores?.nome || '—'}</td>
                   <td>{c.numero_nota || '—'}</td>
                   <td>{c.compras_itens?.length || 0}</td>
-                  <td style={{ fontWeight: 600 }}>{fmt(c.total)}</td>
-                  <td><span className={`badge ${c.status === 'finalizada' ? 'badge-success' : 'badge-warning'}`}>{c.status}</span></td>
+                  <td style={{ fontWeight: 600, fontFamily: 'monospace', letterSpacing: '0.5px' }}>{fmt(c.total)}</td>
+                  <td><span className={`badge ${c.status === 'PAGO' || c.status === 'finalizada' ? 'badge-success' : c.status === 'PARCIAL' ? 'badge-warning' : 'badge-danger'}`}>{c.status}</span></td>
                 </tr>
               ))}
             </tbody>
@@ -233,25 +272,41 @@ export default function Compras() {
                   </div>
                   {cart.length === 0 ? <p className="text-muted" style={{ fontSize: 'var(--text-sm)' }}>Nenhum item adicionado.</p> : (
                     <table className="data-table">
-                      <thead><tr><th>Produto</th><th>Qtd</th><th>Valor Unit.</th><th>Subtotal</th><th></th></tr></thead>
+                      <thead><tr><th>Ref.</th><th>Produto (busca inteligente)</th><th>Qtd</th><th>Valor Unit.</th><th>Subtotal</th><th></th></tr></thead>
                       <tbody>
-                        {cart.map((item, idx) => (
+                        {cart.map((item, idx) => {
+                          const prodSel = produtos.find(p => p.id === item.produto_id);
+                          const results = getFilteredProducts(idx);
+                          return (
                           <tr key={idx}>
-                            <td><select className="form-select" value={item.produto_id} onChange={e => updateCartItem(idx, 'produto_id', e.target.value)} style={{ minWidth: 200 }}>
-                              <option value="">Selecione...</option>
-                              {produtos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-                            </select></td>
-                            <td><input type="number" className="form-input" value={item.quantidade} onChange={e => updateCartItem(idx, 'quantidade', parseInt(e.target.value) || 0)} min="1" style={{ width: 80 }} /></td>
-                            <td><input type="number" step="0.01" className="form-input" value={toReal(item.valor_unitario)} onChange={e => updateCartItem(idx, 'valor_unitario', toCents(e.target.value))} style={{ width: 120 }} /></td>
-                            <td style={{ fontWeight: 600 }}>{fmt(item.quantidade * item.valor_unitario)}</td>
+                            <td style={{ fontWeight: 700, color: 'var(--color-gold)', fontFamily: 'monospace', fontSize: '13px', minWidth: 80 }}>{prodSel?.referencia || '—'}</td>
+                            <td style={{ position: 'relative', minWidth: 240 }}>
+                              <input className="form-input" placeholder="🔍 Ref, nome, código ou valor..." value={prodSearches[idx] ?? (prodSel ? `${prodSel.referencia || ''} ${prodSel.nome}`.trim() : '')} onChange={e => handleProdSearch(idx, e.target.value)} onFocus={() => setProdDropdowns(prev => ({...prev, [idx]: true}))} style={{ fontFamily: 'inherit' }} />
+                              {prodDropdowns[idx] && (
+                                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 200, overflowY: 'auto', background: 'var(--color-bg-secondary, #1a1a2e)', border: '1px solid var(--color-glass-border)', borderRadius: '0 0 8px 8px', zIndex: 50, boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
+                                  {results.length === 0 ? <div style={{ padding: 12, color: 'var(--color-text-muted)', fontSize: 13 }}>Nenhum produto encontrado</div> : results.slice(0, 10).map(p => (
+                                    <div key={p.id} onClick={() => selectProduct(idx, p)} style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background='rgba(201,169,110,0.1)'} onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                                      <div><span style={{ fontWeight: 700, color: 'var(--color-gold)', fontFamily: 'monospace', marginRight: 8 }}>{p.referencia || p.codigo || '—'}</span><span>{p.nome}</span></div>
+                                      <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--color-text-muted)' }}>{fmt(p.custo_unitario)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td><input type="number" className="form-input" value={item.quantidade} onChange={e => updateCartItem(idx, 'quantidade', parseInt(e.target.value) || 0)} min="1" style={{ width: 80, textAlign: 'right' }} tabIndex={0} /></td>
+                            <td><input type="number" step="0.01" className="form-input" value={toReal(item.valor_unitario)} onChange={e => updateCartItem(idx, 'valor_unitario', toCents(e.target.value))} style={{ width: 120, textAlign: 'right', fontFamily: 'monospace' }} tabIndex={0} /></td>
+                            <td style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-gold)' }}>{fmt(item.quantidade * item.valor_unitario)}</td>
                             <td><button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={() => removeCartItem(idx)} style={{ color: 'var(--color-danger)' }}><Trash2 size={14} /></button></td>
                           </tr>
-                        ))}
+                          </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   )}
-                  <div style={{ textAlign: 'right', marginTop: 'var(--space-4)', fontSize: 'var(--text-lg)', fontWeight: 700 }}>
-                    Total: <span className="text-gold">{fmt(cartTotal)}</span>
+                  <div style={{ textAlign: 'right', marginTop: 'var(--space-4)', padding: 'var(--space-3)', background: 'rgba(201,169,110,0.08)', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 'var(--space-3)' }}>
+                    <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>{cart.length} ite{cart.length === 1 ? 'm' : 'ns'}</span>
+                    <span style={{ fontSize: 'var(--text-xl)', fontWeight: 700, fontFamily: 'monospace' }}>Total: <span className="text-gold">{fmt(cartTotal)}</span></span>
                   </div>
                 </div>
                 {/* Pagamentos */}

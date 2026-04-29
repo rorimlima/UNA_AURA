@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
 import { Plus, Search, Receipt, X, Trash2, Printer, CheckCircle } from 'lucide-react';
@@ -7,85 +7,147 @@ import { formatMoney, toCents, toReal } from '../lib/money';
 const fmt = formatMoney;
 const fmtPag = { pix: 'PIX', dinheiro: 'Dinheiro', credito: 'Cartão Crédito', debito: 'Cartão Débito', boleto: 'Boleto', transferencia: 'Transferência', cheque: 'Cheque', crediario: 'Crediário' };
 
-// ─── Recibo PDF (print) ─────────────────────────────────────────────────────
+// ─── Recibo Premium PDF (print) ──────────────────────────────────────────────
 function imprimirRecibo(venda, empresa) {
   const logoHtml = empresa?.logo_url
-    ? `<img src="${empresa.logo_url}" alt="logo" style="height:64px;object-fit:contain;margin-bottom:8px"/>`
-    : '';
+    ? `<img src="${empresa.logo_url}" alt="logo" style="height:72px;object-fit:contain;"/>`
+    : `<div style="font-size:28px;font-weight:800;letter-spacing:2px;color:#B8913A">UNA AURA</div>`;
 
-  const itensHtml = (venda.vendas_itens || []).map(i =>
-    `<tr>
-      <td style="padding:6px 0;border-bottom:1px solid #eee">${i.produtos?.nome || '—'}</td>
-      <td style="text-align:center;border-bottom:1px solid #eee">${i.quantidade}</td>
-      <td style="text-align:right;border-bottom:1px solid #eee">${fmt(i.valor_unitario)}</td>
-      <td style="text-align:right;border-bottom:1px solid #eee;font-weight:600">${fmt(i.quantidade * i.valor_unitario)}</td>
+  const itensHtml = (venda.vendas_itens || []).map((i, idx) =>
+    `<tr style="background:${idx % 2 === 0 ? '#FAFAF7' : '#FFFFFF'}">
+      <td style="padding:10px 14px;font-size:13px;color:#444">${i.produtos?.nome || '—'}</td>
+      <td style="padding:10px 14px;text-align:center;font-size:13px;color:#666">${i.quantidade}</td>
+      <td style="padding:10px 14px;text-align:right;font-size:13px;font-family:'Courier New',monospace;color:#666">${fmt(i.valor_unitario)}</td>
+      <td style="padding:10px 14px;text-align:right;font-size:13px;font-family:'Courier New',monospace;font-weight:700;color:#1a1a2e">${fmt(i.quantidade * i.valor_unitario)}</td>
     </tr>`
   ).join('');
 
-  // Agrupar parcelas e exibir os métodos de pagamento
+  const totalItens = (venda.vendas_itens || []).reduce((s, i) => s + i.quantidade, 0);
+
   const parcelasHtml = venda._parcelas?.length > 0
-    ? `<div style="margin-top:16px;padding:12px;background:#f9f9f9;border-radius:8px">
-        <div style="font-weight:600;margin-bottom:8px">Condições de Pagamento</div>
+    ? `<div style="margin-top:20px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#B8913A;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #E8E4DC">Condições de Pagamento</div>
         ${venda._parcelas.map((p, i) =>
-          `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0">
-            <span>${fmtPag[p.forma_pagamento] || p.forma_pagamento} - Venc: ${new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
-            <span style="font-weight:600">${fmt(p.valor)}</span>
+          `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:${i % 2 === 0 ? '#FAFAF7' : '#FFF'};border-radius:6px;margin-bottom:2px;font-size:13px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="background:#B8913A;color:#FFF;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">${i + 1}/${venda._parcelas.length}</span>
+              <span style="color:#666">${fmtPag[p.forma_pagamento] || p.forma_pagamento}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="font-size:12px;color:#999">Venc: ${new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+              <span style="font-family:'Courier New',monospace;font-weight:700;color:#1a1a2e">${fmt(p.valor)}</span>
+            </div>
           </div>`
         ).join('')}
       </div>`
     : '';
 
-  const enderecoEmpresa = empresa
-    ? [empresa.endereco, empresa.numero, empresa.bairro, empresa.cidade, empresa.estado].filter(Boolean).join(', ')
-    : '';
+  const endParts = [empresa?.endereco, empresa?.numero, empresa?.bairro, empresa?.cidade, empresa?.estado].filter(Boolean);
+  const enderecoEmpresa = endParts.join(', ');
+
+  const dataVenda = new Date(venda.data).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-  <title>Recibo de Venda #${venda.numero_pedido || venda.id?.substring(0,8)}</title>
+  <title>Recibo #${venda.numero_pedido || venda.id?.substring(0,8)}</title>
   <style>
-    body{font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;color:#111}
-    h1{font-size:20px;margin:0}
-    .header{text-align:center;border-bottom:2px solid #c9a96e;padding-bottom:16px;margin-bottom:16px}
-    .empresa-nome{font-size:18px;font-weight:700;color:#8b6914}
-    .empresa-info{font-size:12px;color:#666;margin-top:2px}
-    .secao{margin:16px 0}
-    .label{font-size:11px;color:#999;text-transform:uppercase;letter-spacing:.5px}
-    .valor{font-size:14px;font-weight:600}
-    table{width:100%;border-collapse:collapse;font-size:14px}
-    th{text-align:left;font-size:11px;color:#999;text-transform:uppercase;border-bottom:2px solid #c9a96e;padding-bottom:6px}
-    .total-row{font-size:18px;font-weight:700;color:#c9a96e;text-align:right;padding-top:12px;border-top:2px solid #c9a96e}
-    .footer{text-align:center;margin-top:24px;font-size:11px;color:#999;border-top:1px solid #eee;padding-top:16px}
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Inter',Arial,sans-serif;max-width:680px;margin:0 auto;padding:0;color:#1a1a2e;background:#FFF}
+    @media print{body{padding:0;margin:0}@page{margin:15mm 10mm}}
   </style></head><body>
-  <div class="header">
+
+  <!-- Borda superior dourada -->
+  <div style="height:6px;background:linear-gradient(90deg,#A68B4B,#C9A96E,#E2C992,#C9A96E,#A68B4B)"></div>
+
+  <!-- Header Empresa -->
+  <div style="padding:28px 32px 20px;text-align:center;border-bottom:1px solid #E8E4DC">
     ${logoHtml}
-    <div class="empresa-nome">${empresa?.nome || 'UNA AURA'}</div>
-    ${empresa?.cnpj ? `<div class="empresa-info">CNPJ: ${empresa.cnpj}</div>` : ''}
-    ${enderecoEmpresa ? `<div class="empresa-info">${enderecoEmpresa}</div>` : ''}
-    ${empresa?.telefone ? `<div class="empresa-info">Tel: ${empresa.telefone}</div>` : ''}
+    <div style="margin-top:8px;font-size:11px;color:#999;letter-spacing:0.5px">
+      ${empresa?.cnpj ? `CNPJ: ${empresa.cnpj}` : ''}
+      ${empresa?.cnpj && enderecoEmpresa ? ' · ' : ''}
+      ${enderecoEmpresa}
+    </div>
+    ${empresa?.telefone || empresa?.email ? `<div style="font-size:11px;color:#999;margin-top:2px">${[empresa?.telefone, empresa?.email].filter(Boolean).join(' · ')}</div>` : ''}
   </div>
 
-  <h1 style="margin-bottom:4px">Recibo de Venda</h1>
-  <div style="font-size:13px;color:#666">Nº ${venda.numero_pedido || venda.id?.substring(0,8)} · ${new Date(venda.data).toLocaleDateString('pt-BR')}</div>
-
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0">
-    <div><div class="label">Cliente</div><div class="valor">${venda.clientes?.nome || 'Consumidor'}</div></div>
-    <div><div class="label">Vendedor</div><div class="valor">${venda.vendedores?.nome || '—'}</div></div>
-    <div><div class="label">Múltiplos Pagtos</div><div class="valor">${venda._parcelas?.length || 0} parcelas/lançamentos</div></div>
-    <div><div class="label">Status</div><div class="valor">${venda.status || 'finalizada'}</div></div>
+  <!-- Título do Recibo -->
+  <div style="padding:20px 32px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #E8E4DC">
+    <div>
+      <div style="font-size:22px;font-weight:800;color:#1a1a2e;letter-spacing:-0.5px">RECIBO DE VENDA</div>
+      <div style="font-size:12px;color:#999;margin-top:2px">Documento não fiscal</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#B8913A">Nº Pedido</div>
+      <div style="font-size:20px;font-weight:800;color:#B8913A;font-family:'Courier New',monospace">${venda.numero_pedido || venda.id?.substring(0,8)}</div>
+    </div>
   </div>
 
-  <table><thead><tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:right">Unit.</th><th style="text-align:right">Total</th></tr></thead>
-  <tbody>${itensHtml}</tbody></table>
-
-  <div class="total-row">Total: ${fmt(venda.total)}</div>
-
-  ${parcelasHtml}
-
-  ${venda.observacoes ? `<div style="margin-top:16px;padding:12px;background:#fffbe6;border-radius:8px;font-size:13px"><strong>Obs:</strong> ${venda.observacoes}</div>` : ''}
-
-  <div class="footer">
-    ${empresa?.nome || 'UNA AURA'} · ${empresa?.email || ''}<br/>
-    Obrigada pela preferência! ✨
+  <!-- Info Grid -->
+  <div style="padding:16px 32px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;border-bottom:1px solid #E8E4DC;background:#FAFAF7">
+    <div>
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#B8913A;margin-bottom:4px">Data</div>
+      <div style="font-size:14px;font-weight:600;color:#333">${dataVenda}</div>
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#B8913A;margin-bottom:4px">Cliente</div>
+      <div style="font-size:14px;font-weight:600;color:#333">${venda.clientes?.nome || 'Consumidor Final'}</div>
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#B8913A;margin-bottom:4px">Vendedor</div>
+      <div style="font-size:14px;font-weight:600;color:#333">${venda.vendedores?.nome || '—'}</div>
+    </div>
   </div>
+
+  <!-- Tabela de Itens -->
+  <div style="padding:20px 32px">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#B8913A;margin-bottom:12px">Itens da Venda</div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="border-bottom:2px solid #C9A96E">
+          <th style="padding:8px 14px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999">Produto</th>
+          <th style="padding:8px 14px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999">Qtd</th>
+          <th style="padding:8px 14px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999">Unitário</th>
+          <th style="padding:8px 14px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#999">Subtotal</th>
+        </tr>
+      </thead>
+      <tbody>${itensHtml}</tbody>
+    </table>
+
+    <!-- Total -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding:14px 18px;background:linear-gradient(135deg,#B8913A,#C9A96E);border-radius:10px;color:#FFF">
+      <div>
+        <span style="font-size:12px;opacity:0.85">${totalItens} ite${totalItens === 1 ? 'm' : 'ns'}</span>
+      </div>
+      <div style="font-size:22px;font-weight:800;font-family:'Courier New',monospace;letter-spacing:1px">${fmt(venda.total)}</div>
+    </div>
+
+    ${parcelasHtml}
+
+    ${venda.observacoes ? `<div style="margin-top:16px;padding:14px 16px;background:#FFFDE7;border-left:3px solid #C9A96E;border-radius:0 8px 8px 0;font-size:13px;color:#555"><strong style="color:#B8913A">Observações:</strong> ${venda.observacoes}</div>` : ''}
+  </div>
+
+  <!-- Assinaturas -->
+  <div style="padding:30px 32px 10px;display:grid;grid-template-columns:1fr 1fr;gap:40px">
+    <div style="text-align:center">
+      <div style="border-top:1px solid #ccc;padding-top:8px;font-size:12px;color:#666">Assinatura do Vendedor</div>
+    </div>
+    <div style="text-align:center">
+      <div style="border-top:1px solid #ccc;padding-top:8px;font-size:12px;color:#666">Assinatura do Cliente</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="text-align:center;padding:16px 32px 20px;border-top:1px solid #E8E4DC;margin-top:16px">
+    <div style="font-size:11px;color:#bbb;line-height:1.6">
+      ${empresa?.nome || 'UNA AURA'} ${empresa?.email ? ' · ' + empresa.email : ''}
+      <br/>Obrigada pela preferência! ✨
+      <br/><span style="font-size:10px;color:#ddd">Emitido em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+    </div>
+  </div>
+
+  <!-- Borda inferior dourada -->
+  <div style="height:6px;background:linear-gradient(90deg,#A68B4B,#C9A96E,#E2C992,#C9A96E,#A68B4B)"></div>
+
   </body></html>`;
 
   const win = window.open('', '_blank');
@@ -111,14 +173,61 @@ export default function Vendas() {
   const [novoClienteForm, setNovoClienteForm] = useState({ nome: '', telefone: '' });
   const [showNovoProduto, setShowNovoProduto] = useState(false);
   const [novoProdutoForm, setNovoProdutoForm] = useState({ nome: '', preco_venda: '' });
+  const [clienteSearch, setClienteSearch] = useState('');
+  const [showClienteDropdown, setShowClienteDropdown] = useState(false);
+  const [prodSearches, setProdSearches] = useState({});
+  const [prodDropdowns, setProdDropdowns] = useState({});
+  const searchTimers = useRef({});
+
+  // Smart client search
+  function getFilteredClients() {
+    const q = clienteSearch.toLowerCase();
+    if (!q) return clientes;
+    return clientes.filter(c =>
+      (c.nome || '').toLowerCase().includes(q) ||
+      (c.codigo || '').toLowerCase().includes(q)
+    );
+  }
+
+  function selectCliente(c) {
+    setForm(prev => ({ ...prev, cliente_id: c.id }));
+    setClienteSearch(`${c.codigo || ''} ${c.nome}`.trim());
+    setShowClienteDropdown(false);
+  }
+
+  // Smart product search with debounce
+  function handleProdSearch(idx, query) {
+    setProdSearches(prev => ({ ...prev, [idx]: query }));
+    clearTimeout(searchTimers.current[idx]);
+    searchTimers.current[idx] = setTimeout(() => {
+      setProdDropdowns(prev => ({ ...prev, [idx]: query.length > 0 }));
+    }, 300);
+  }
+
+  function getFilteredProducts(idx) {
+    const q = (prodSearches[idx] || '').toLowerCase();
+    if (!q) return produtos;
+    return produtos.filter(p =>
+      (p.nome || '').toLowerCase().includes(q) ||
+      (p.codigo || '').toLowerCase().includes(q) ||
+      (p.referencia || '').toLowerCase().includes(q) ||
+      toReal(p.preco_venda).toFixed(2).includes(q)
+    );
+  }
+
+  function selectProduct(idx, prod) {
+    updateCartItem(idx, 'produto_id', prod.id);
+    setProdSearches(prev => ({ ...prev, [idx]: `${prod.referencia || ''} ${prod.nome}`.trim() }));
+    setProdDropdowns(prev => ({ ...prev, [idx]: false }));
+  }
 
   useEffect(() => { load(); }, []);
 
   async function load() {
     const [{ data: v }, { data: c }, { data: p }, { data: vend }, { data: emp }] = await Promise.all([
       supabase.from('vendas').select('id, data, numero_pedido, total, status, forma_pagamento, observacoes, cliente_id, vendedor_id, clientes(nome), vendedores(nome), vendas_itens(id, quantidade, valor_unitario, produto_id, produtos(nome))').order('data', { ascending: false }).limit(100),
-      supabase.from('clientes').select('id, nome').order('nome'),
-      supabase.from('produtos').select('id, nome, preco_venda, quantidade_estoque').eq('ativo', true).order('nome'),
+      supabase.from('clientes').select('id, nome, codigo').order('nome'),
+      supabase.from('produtos').select('id, nome, codigo, referencia, preco_venda, quantidade_estoque').eq('ativo', true).order('nome'),
       supabase.from('vendedores').select('id, nome').eq('ativo', true).order('nome'),
       supabase.from('empresa').select('*').limit(1).maybeSingle(),
     ]);
@@ -154,6 +263,9 @@ export default function Vendas() {
     setForm({ cliente_id: '', vendedor_id: '', data: new Date().toISOString().split('T')[0], numero_pedido: uniqueId, observacoes: '' });
     setCart([]);
     setPagamentos([]);
+    setClienteSearch('');
+    setProdSearches({});
+    setProdDropdowns({});
     setShowModal(true);
   }
 
@@ -302,15 +414,14 @@ export default function Vendas() {
                   <td style={{ color: 'var(--color-text-muted)' }}>{v.vendedores?.nome || '—'}</td>
                   <td>{v.numero_pedido || '—'}</td>
                   <td>{v.vendas_itens?.length || 0}</td>
-                  <td style={{ fontWeight: 600, color: 'var(--color-success)' }}>{fmt(v.total)}</td>
+                  <td style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-success)' }}>{fmt(v.total)}</td>
                   <td><span className={`badge ${v.status === 'finalizada' ? 'badge-success' : 'badge-warning'}`}>{v.status}</span></td>
                   <td>
-                    <button className="btn btn-ghost btn-icon btn-sm" title="Imprimir Recibo" onClick={async () => {
-                      // Para impressão de vendas antigas, buscamos as parcelas reais
+                    <button className="btn btn-sm" title="Gerar Recibo" style={{ background: 'rgba(201,169,110,0.1)', color: 'var(--color-gold)', border: '1px solid rgba(201,169,110,0.2)', gap: '4px', fontWeight: 600 }} onClick={async () => {
                       const { data: cRec } = await supabase.from('contas_receber').select('*').eq('venda_id', v.id);
                       imprimirRecibo({ ...v, _parcelas: cRec || [] }, empresa);
                     }}>
-                      <Printer size={14} />
+                      <Printer size={13} /> Recibo
                     </button>
                   </td>
                 </tr>
@@ -329,9 +440,20 @@ export default function Vendas() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
                   <div className="form-group"><label className="form-label">Cliente</label>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <select className="form-select" value={form.cliente_id} onChange={e => setForm({ ...form, cliente_id: e.target.value })}>
-                        <option value="">Sem cliente</option>{clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                      </select>
+                      <div style={{ position: 'relative', flex: 1 }}>
+                        <input className="form-input" placeholder="🔍 Buscar por nome ou código (CLI-0001)..." value={clienteSearch} onChange={e => { setClienteSearch(e.target.value); setShowClienteDropdown(true); }} onFocus={() => setShowClienteDropdown(true)} />
+                        {showClienteDropdown && (
+                          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 180, overflowY: 'auto', background: 'var(--color-bg-secondary, #1a1a2e)', border: '1px solid var(--color-glass-border)', borderRadius: '0 0 8px 8px', zIndex: 50, boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
+                            <div onClick={() => { setForm(prev => ({...prev, cliente_id: ''})); setClienteSearch('Sem cliente'); setShowClienteDropdown(false); }} style={{ padding: '8px 12px', cursor: 'pointer', color: 'var(--color-text-muted)', fontStyle: 'italic', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>Sem cliente</div>
+                            {getFilteredClients().slice(0, 10).map(c => (
+                              <div key={c.id} onClick={() => selectCliente(c)} style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background='rgba(201,169,110,0.1)'} onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                                <span>{c.nome}</span>
+                                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-gold)', fontSize: 12 }}>{c.codigo || ''}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       <button type="button" className="btn btn-secondary" onClick={() => setShowNovoCliente(true)} title="Novo Cliente">+</button>
                     </div>
                   </div>
@@ -355,24 +477,40 @@ export default function Vendas() {
                   </div>
                   {cart.length === 0 ? <p className="text-muted" style={{ fontSize: 'var(--text-sm)' }}>Nenhum item.</p> : (
                     <table className="data-table">
-                      <thead><tr><th>Produto</th><th>Qtd</th><th>Preço</th><th>Subtotal</th><th></th></tr></thead>
+                      <thead><tr><th>Ref.</th><th>Produto (busca inteligente)</th><th>Qtd</th><th>Preço</th><th>Subtotal</th><th></th></tr></thead>
                       <tbody>
-                        {cart.map((item, idx) => (
+                        {cart.map((item, idx) => {
+                          const prodSel = produtos.find(p => p.id === item.produto_id);
+                          const results = getFilteredProducts(idx);
+                          return (
                           <tr key={idx}>
-                            <td><select className="form-select" value={item.produto_id} onChange={e => updateCartItem(idx, 'produto_id', e.target.value)} style={{ minWidth: 200 }}>
-                              <option value="">Selecione...</option>{produtos.map(p => <option key={p.id} value={p.id}>{p.nome} ({p.quantidade_estoque || 0} un.)</option>)}
-                            </select></td>
-                            <td><input type="number" className="form-input" value={item.quantidade} onChange={e => updateCartItem(idx, 'quantidade', parseInt(e.target.value) || 0)} min="1" style={{ width: 80 }} /></td>
-                            <td><input type="number" step="0.01" className="form-input" value={toReal(item.valor_unitario)} onChange={e => updateCartItem(idx, 'valor_unitario', toCents(e.target.value))} style={{ width: 120 }} /></td>
-                            <td style={{ fontWeight: 600 }}>{fmt(item.quantidade * item.valor_unitario)}</td>
+                            <td style={{ fontWeight: 700, color: 'var(--color-gold)', fontFamily: 'monospace', fontSize: 13, minWidth: 80 }}>{prodSel?.referencia || '—'}</td>
+                            <td style={{ position: 'relative', minWidth: 240 }}>
+                              <input className="form-input" placeholder="🔍 Ref, nome, código ou valor..." value={prodSearches[idx] ?? (prodSel ? `${prodSel.referencia || ''} ${prodSel.nome}`.trim() : '')} onChange={e => handleProdSearch(idx, e.target.value)} onFocus={() => setProdDropdowns(prev => ({...prev, [idx]: true}))} />
+                              {prodDropdowns[idx] && (
+                                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 200, overflowY: 'auto', background: 'var(--color-bg-secondary, #1a1a2e)', border: '1px solid var(--color-glass-border)', borderRadius: '0 0 8px 8px', zIndex: 50, boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
+                                  {results.length === 0 ? <div style={{ padding: 12, color: 'var(--color-text-muted)', fontSize: 13 }}>Nenhum produto encontrado</div> : results.slice(0, 10).map(p => (
+                                    <div key={p.id} onClick={() => selectProduct(idx, p)} style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background='rgba(201,169,110,0.1)'} onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                                      <div><span style={{ fontWeight: 700, color: 'var(--color-gold)', fontFamily: 'monospace', marginRight: 8 }}>{p.referencia || p.codigo || '—'}</span><span>{p.nome}</span><span style={{ fontSize: 11, color: 'var(--color-text-muted)', marginLeft: 6 }}>({p.quantidade_estoque || 0} un.)</span></div>
+                                      <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 600 }}>{fmt(p.preco_venda)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td><input type="number" className="form-input" value={item.quantidade} onChange={e => updateCartItem(idx, 'quantidade', parseInt(e.target.value) || 0)} min="1" style={{ width: 80, textAlign: 'right' }} tabIndex={0} /></td>
+                            <td><input type="number" step="0.01" className="form-input" value={toReal(item.valor_unitario)} onChange={e => updateCartItem(idx, 'valor_unitario', toCents(e.target.value))} style={{ width: 120, textAlign: 'right', fontFamily: 'monospace' }} tabIndex={0} /></td>
+                            <td style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-gold)' }}>{fmt(item.quantidade * item.valor_unitario)}</td>
                             <td><button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={() => removeCartItem(idx)} style={{ color: 'var(--color-danger)' }}><Trash2 size={14} /></button></td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   )}
-                  <div style={{ textAlign: 'right', marginTop: 'var(--space-4)', fontSize: 'var(--text-lg)', fontWeight: 700 }}>
-                    Total: <span style={{ color: 'var(--color-success)' }}>{fmt(cartTotal)}</span>
+                  <div style={{ textAlign: 'right', marginTop: 'var(--space-4)', padding: 'var(--space-3)', background: 'rgba(74,222,128,0.08)', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 'var(--space-3)' }}>
+                    <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>{cart.length} ite{cart.length === 1 ? 'm' : 'ns'}</span>
+                    <span style={{ fontSize: 'var(--text-xl)', fontWeight: 700, fontFamily: 'monospace' }}>Total: <span style={{ color: 'var(--color-success)' }}>{fmt(cartTotal)}</span></span>
                   </div>
                 </div>
 
