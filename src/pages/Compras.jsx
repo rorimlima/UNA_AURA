@@ -26,7 +26,10 @@ export default function Compras() {
   // Smart supplier search
   const [fornSearch, setFornSearch] = useState('');
   const [showFornDropdown, setShowFornDropdown] = useState(false);
+  const [fornSearchResults, setFornSearchResults] = useState([]);
+  const [fornSearchLoading, setFornSearchLoading] = useState(false);
   const fornDropdownRef = useRef(null);
+  const fornSearchTimer = useRef(null);
 
   // Close supplier dropdown on outside click
   useEffect(() => {
@@ -39,29 +42,42 @@ export default function Compras() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  function getFilteredFornecedores() {
-    const q = fornSearch.toLowerCase().trim();
-    if (!q) return fornecedores;
-    return fornecedores.filter(f =>
-      (f.nome || '').toLowerCase().includes(q) ||
-      (f.codigo || '').toLowerCase().includes(q) ||
-      (f.documento || '').toLowerCase().includes(q) ||
-      (f.telefone || '').includes(q) ||
-      (f.email || '').toLowerCase().includes(q)
-    );
+  // Live Supabase search for suppliers with debounce
+  function handleFornSearchChange(value) {
+    setFornSearch(value);
+    setShowFornDropdown(true);
+    if (!value) {
+      setForm(prev => ({ ...prev, fornecedor_id: '' }));
+      setFornSearchResults(fornecedores.slice(0, 15));
+      return;
+    }
+    clearTimeout(fornSearchTimer.current);
+    fornSearchTimer.current = setTimeout(async () => {
+      setFornSearchLoading(true);
+      const q = value.trim();
+      const { data } = await supabase
+        .from('fornecedores')
+        .select('id, nome, codigo, documento, telefone, email, status_financeiro')
+        .or(`nome.ilike.%${q}%,codigo.ilike.%${q}%,documento.ilike.%${q}%`)
+        .order('nome')
+        .limit(15);
+      setFornSearchResults(data || []);
+      setFornSearchLoading(false);
+    }, 300);
+  }
+
+  // Load initial supplier results when dropdown opens
+  function handleFornFocus() {
+    setShowFornDropdown(true);
+    if (fornSearchResults.length === 0 && !fornSearch) {
+      setFornSearchResults(fornecedores.slice(0, 15));
+    }
   }
 
   function selectFornecedor(forn) {
     setForm(prev => ({ ...prev, fornecedor_id: forn.id }));
     setFornSearch(forn.nome);
     setShowFornDropdown(false);
-  }
-
-  function handleFornSearchChange(value) {
-    setFornSearch(value);
-    setShowFornDropdown(value.length > 0 || true);
-    // If cleared, also clear selection
-    if (!value) setForm(prev => ({ ...prev, fornecedor_id: '' }));
   }
 
   // Smart product search with debounce
@@ -141,6 +157,7 @@ export default function Compras() {
     setPagamentos([]);
     setFornSearch('');
     setShowFornDropdown(false);
+    setFornSearchResults([]);
     setShowModal(true);
   }
 
@@ -236,7 +253,7 @@ export default function Compras() {
     await supabase.from('fornecedores').update({ status_financeiro: novoStatus }).eq('id', form.fornecedor_id);
 
     addToast('Compra registrada com sucesso!');
-    setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); setFornSearch(''); setShowFornDropdown(false); load();
+    setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); setFornSearch(''); setShowFornDropdown(false); setFornSearchResults([]); load();
   }
 
   const fmt = formatMoney;
@@ -324,14 +341,16 @@ export default function Compras() {
                           placeholder="🔍 Buscar por nome, código, CNPJ, telefone..."
                           value={fornSearch}
                           onChange={e => handleFornSearchChange(e.target.value)}
-                          onFocus={() => setShowFornDropdown(true)}
+                          onFocus={handleFornFocus}
                           autoComplete="off"
                         />
                         {showFornDropdown && (
                           <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 220, overflowY: 'auto', background: 'var(--color-bg-secondary, #1a1a2e)', border: '1px solid var(--color-glass-border)', borderRadius: '0 0 8px 8px', zIndex: 50, boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
-                            {getFilteredFornecedores().length === 0 ? (
+                            {fornSearchLoading ? (
+                              <div style={{ padding: 12, color: 'var(--color-text-muted)', fontSize: 13, textAlign: 'center' }}>Buscando...</div>
+                            ) : fornSearchResults.length === 0 ? (
                               <div style={{ padding: 12, color: 'var(--color-text-muted)', fontSize: 13 }}>Nenhum fornecedor encontrado</div>
-                            ) : getFilteredFornecedores().slice(0, 12).map(f => (
+                            ) : fornSearchResults.map(f => (
                               <div
                                 key={f.id}
                                 onClick={() => selectFornecedor(f)}

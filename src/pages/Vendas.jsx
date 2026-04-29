@@ -177,18 +177,55 @@ export default function Vendas() {
   const [novoProdutoForm, setNovoProdutoForm] = useState({ nome: '', preco_venda: '' });
   const [clienteSearch, setClienteSearch] = useState('');
   const [showClienteDropdown, setShowClienteDropdown] = useState(false);
+  const [clienteResults, setClienteResults] = useState([]);
+  const [clienteSearchLoading, setClienteSearchLoading] = useState(false);
+  const clienteDropdownRef = useRef(null);
+  const clienteSearchTimer = useRef(null);
   const [prodSearches, setProdSearches] = useState({});
   const [prodDropdowns, setProdDropdowns] = useState({});
   const searchTimers = useRef({});
 
-  // Smart client search
-  function getFilteredClients() {
-    const q = clienteSearch.toLowerCase();
-    if (!q) return clientes;
-    return clientes.filter(c =>
-      (c.nome || '').toLowerCase().includes(q) ||
-      (c.codigo || '').toLowerCase().includes(q)
-    );
+  // Close client dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (clienteDropdownRef.current && !clienteDropdownRef.current.contains(e.target)) {
+        setShowClienteDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Smart client search — live Supabase query with debounce
+  function handleClienteSearch(value) {
+    setClienteSearch(value);
+    setShowClienteDropdown(true);
+    if (!value) {
+      setForm(prev => ({ ...prev, cliente_id: '' }));
+      setClienteResults(clientes.slice(0, 15));
+      return;
+    }
+    clearTimeout(clienteSearchTimer.current);
+    clienteSearchTimer.current = setTimeout(async () => {
+      setClienteSearchLoading(true);
+      const q = value.trim();
+      const { data } = await supabase
+        .from('clientes')
+        .select('id, nome, codigo, documento, telefone')
+        .or(`nome.ilike.%${q}%,codigo.ilike.%${q}%`)
+        .order('nome')
+        .limit(15);
+      setClienteResults(data || []);
+      setClienteSearchLoading(false);
+    }, 300);
+  }
+
+  // Load initial client results when dropdown opens
+  function handleClienteFocus() {
+    setShowClienteDropdown(true);
+    if (clienteResults.length === 0 && !clienteSearch) {
+      setClienteResults(clientes.slice(0, 15));
+    }
   }
 
   function selectCliente(c) {
@@ -278,6 +315,8 @@ export default function Vendas() {
     if (error) return addToast('Erro: ' + error.message, 'error');
     setClientes([...clientes, data].sort((a,b)=>a.nome.localeCompare(b.nome)));
     setForm({ ...form, cliente_id: data.id });
+    setClienteSearch(data.nome);
+    setShowClienteDropdown(false);
     setShowNovoCliente(false);
     setNovoClienteForm({ nome: '', telefone: '' });
     addToast('Cliente cadastrado!');
@@ -463,14 +502,28 @@ export default function Vendas() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
                   <div className="form-group"><label className="form-label">Cliente</label>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <div style={{ position: 'relative', flex: 1 }}>
-                        <input className="form-input" placeholder="🔍 Buscar por nome ou código (CLI-0001)..." value={clienteSearch} onChange={e => { setClienteSearch(e.target.value); setShowClienteDropdown(true); }} onFocus={() => setShowClienteDropdown(true)} />
+                      <div ref={clienteDropdownRef} style={{ position: 'relative', flex: 1 }}>
+                        <input className="form-input" placeholder="🔍 Buscar por nome ou código (CLI-0001)..." value={clienteSearch} onChange={e => handleClienteSearch(e.target.value)} onFocus={handleClienteFocus} autoComplete="off" />
                         {showClienteDropdown && (
-                          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 180, overflowY: 'auto', background: 'var(--color-bg-secondary, #1a1a2e)', border: '1px solid var(--color-glass-border)', borderRadius: '0 0 8px 8px', zIndex: 50, boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
+                          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 220, overflowY: 'auto', background: 'var(--color-bg-secondary, #1a1a2e)', border: '1px solid var(--color-glass-border)', borderRadius: '0 0 8px 8px', zIndex: 50, boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
                             <div onClick={() => { setForm(prev => ({...prev, cliente_id: ''})); setClienteSearch('Sem cliente'); setShowClienteDropdown(false); }} style={{ padding: '8px 12px', cursor: 'pointer', color: 'var(--color-text-muted)', fontStyle: 'italic', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>Sem cliente</div>
-                            {getFilteredClients().slice(0, 10).map(c => (
-                              <div key={c.id} onClick={() => selectCliente(c)} style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background='rgba(201,169,110,0.1)'} onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-                                <span>{c.nome}</span>
+                            {clienteSearchLoading ? (
+                              <div style={{ padding: 12, color: 'var(--color-text-muted)', fontSize: 13, textAlign: 'center' }}>Buscando...</div>
+                            ) : clienteResults.length === 0 ? (
+                              <div style={{ padding: 12, color: 'var(--color-text-muted)', fontSize: 13 }}>Nenhum cliente encontrado</div>
+                            ) : clienteResults.map(c => (
+                              <div key={c.id} onClick={() => selectCliente(c)} style={{
+                                padding: '10px 12px', cursor: 'pointer',
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                borderBottom: '1px solid rgba(255,255,255,0.05)', transition: 'background .15s',
+                                background: form.cliente_id === c.id ? 'rgba(201,169,110,0.15)' : 'transparent'
+                              }} onMouseEnter={e => e.currentTarget.style.background='rgba(201,169,110,0.1)'} onMouseLeave={e => e.currentTarget.style.background = form.cliente_id === c.id ? 'rgba(201,169,110,0.15)' : 'transparent'}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                  <span style={{ fontWeight: 600 }}>{c.nome}</span>
+                                  <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
+                                    {c.codigo || ''}{c.documento ? ` • ${c.documento}` : ''}{c.telefone ? ` • ${c.telefone}` : ''}
+                                  </span>
+                                </div>
                                 <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-gold)', fontSize: 12 }}>{c.codigo || ''}</span>
                               </div>
                             ))}
