@@ -197,8 +197,8 @@ export default function Compras() {
     if (!form.fornecedor_id) return addToast('Selecione o fornecedor', 'error');
     if (cart.length === 0) return addToast('Adicione itens ao carrinho', 'error');
     if (cart.some(i => !i.produto_id)) return addToast('Selecione todos os produtos', 'error');
-    if (pagamentos.length === 0) return addToast('Adicione pelo menos uma forma de pagamento', 'error');
-    if (pagamentosTotal !== cartTotal) return addToast('A soma dos pagamentos não bate com o total da compra', 'error');
+    // Permitir salvar sem pagamento (fica como rascunho/pendente)
+    if (pagamentos.length > 0 && pagamentosTotal !== cartTotal) return addToast('A soma dos pagamentos não bate com o total da compra', 'error');
 
     // Determinar status usando valores aceitos pela constraint do banco
     // 'finalizada' = pago, 'rascunho' = pendente
@@ -206,7 +206,7 @@ export default function Compras() {
     const pgtoImediato = pagamentos.filter(p => formasImediatas.includes(p.forma_pagamento));
     const totalImediato = pgtoImediato.reduce((s, p) => s + (p.valor || 0), 0);
     let statusCompra = 'rascunho'; // pendente
-    if (totalImediato >= cartTotal) statusCompra = 'finalizada'; // pago
+    if (pagamentos.length > 0 && totalImediato >= cartTotal) statusCompra = 'finalizada'; // pago
 
     const { data: compra, error } = await supabase.from('compras').insert({
       fornecedor_id: form.fornecedor_id, data: form.data, numero_nota: form.numero_nota,
