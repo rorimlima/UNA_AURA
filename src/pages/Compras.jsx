@@ -288,7 +288,13 @@ export default function Compras() {
         if (cpErr) addToast('Aviso: erro ao gerar contas: ' + cpErr.message, 'error');
       }
 
-      await supabase.rpc('recalcular_status_fornecedor', { p_fornecedor_id: form.fornecedor_id }).catch(() => {});
+      try {
+        const { error: rpcErr } = await supabase.rpc('recalcular_status_fornecedor', { p_fornecedor_id: form.fornecedor_id });
+        if (rpcErr) throw rpcErr;
+      } catch (e) {
+        console.error('Erro ao recalcular status do fornecedor:', e);
+        addToast('Aviso: erro ao atualizar status do fornecedor: ' + (e.message || e), 'error');
+      }
 
       addToast(compraIdExistente ? '✅ Compra atualizada com sucesso!' : '✅ Compra registrada!', 'success');
       setEditingCompra(null);

@@ -406,7 +406,13 @@ export default function Vendas() {
 
     // 5. Recalcular status financeiro do cliente
     if (form.cliente_id) {
-      await supabase.rpc('recalcular_status_cliente', { p_cliente_id: form.cliente_id }).catch(() => {});
+      try {
+        const { error: rpcErr } = await supabase.rpc('recalcular_status_cliente', { p_cliente_id: form.cliente_id });
+        if (rpcErr) throw rpcErr;
+      } catch (e) {
+        console.error('Erro ao recalcular status do cliente:', e);
+        addToast('Aviso: erro ao atualizar status do cliente: ' + (e.message || e), 'error');
+      }
     }
 
     // 6. Concluir
