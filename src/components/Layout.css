@@ -341,3 +341,34 @@
 [data-theme="light"] .sidebar-overlay {
   background: rgba(0, 0, 0, 0.2);
 }
+
+/* ─── Logout Button ─── */
+.sidebar-logout-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  transition: all 0.25s ease;
+  flex-shrink: 0;
+}
+
+.sidebar-logout-btn:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.12) !important;
+  color: var(--color-danger) !important;
+  transform: scale(1.05);
+}
+
+.sidebar-logout-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.sidebar-logout-btn:disabled {
+  pointer-events: none;
+}
+
+@media (max-width: 768px) {
+  .sidebar-logout-btn {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+}

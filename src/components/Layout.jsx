@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -58,7 +58,29 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inadCount, setInadCount] = useState(0);
   const [theme, setTheme] = useState(() => localStorage.getItem('una-theme') || 'dark');
+  const [loggingOut, setLoggingOut] = useState(false);
   const location = useLocation();
+
+  // Robust logout handler with confirmation and error resilience
+  const handleLogout = useCallback(async () => {
+    if (loggingOut) return; // Prevent double-clicks
+
+    const confirmed = window.confirm('Deseja realmente sair do sistema?');
+    if (!confirmed) return;
+
+    setLoggingOut(true);
+    setSidebarOpen(false);
+
+    try {
+      await signOut();
+      // signOut already handles redirect via window.location.href
+    } catch (err) {
+      console.error('[Layout] Logout failed:', err);
+      // Fallback: force redirect even if signOut threw
+      window.location.href = '/login';
+    }
+    // No need to setLoggingOut(false) — page will reload
+  }, [signOut, loggingOut]);
 
   // Aplicar tema no HTML
   useEffect(() => {
@@ -179,8 +201,25 @@ export default function Layout() {
               </span>
             </div>
           </div>
-          <button className="btn btn-ghost btn-icon" onClick={signOut} title="Sair">
-            <LogOut size={18} />
+          <button
+            className="btn btn-ghost btn-icon sidebar-logout-btn"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            title="Sair do sistema"
+            style={{
+              minWidth: 40,
+              minHeight: 40,
+              position: 'relative',
+              zIndex: 10,
+              cursor: loggingOut ? 'wait' : 'pointer',
+              opacity: loggingOut ? 0.6 : 1,
+            }}
+          >
+            {loggingOut ? (
+              <div className="spinner" style={{ width: 18, height: 18 }} />
+            ) : (
+              <LogOut size={18} />
+            )}
           </button>
         </div>
       </aside>
