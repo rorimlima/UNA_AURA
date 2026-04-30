@@ -12,6 +12,7 @@ export default function Compras() {
   const [formasPagamento, setFormasPagamento] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [editingCompra, setEditingCompra] = useState(null);
   const [form, setForm] = useState({ fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
   const [cart, setCart] = useState([]);
@@ -198,8 +199,8 @@ export default function Compras() {
     if (!form.fornecedor_id) return addToast('Selecione o fornecedor', 'error');
     if (cart.length === 0) return addToast('Adicione itens ao carrinho', 'error');
     if (cart.some(i => !i.produto_id)) return addToast('Selecione todos os produtos', 'error');
-    // Permitir salvar sem pagamento (fica como rascunho/pendente)
     if (pagamentos.length > 0 && pagamentosTotal !== cartTotal) return addToast('A soma dos pagamentos não bate com o total da compra', 'error');
+    setSaving(true);
 
     try {
       // Se estiver editando, reverter estoque e limpar itens/contas (mas NÃO excluir a compra)
@@ -220,7 +221,7 @@ export default function Compras() {
       const pgtoImediato = pagamentos.filter(p => formasImediatas.includes(p.forma_pagamento));
       const totalImediato = pgtoImediato.reduce((s, p) => s + (p.valor || 0), 0);
       let statusCompra = 'rascunho';
-      if (pagamentos.length > 0 && totalImediato >= cartTotal) statusCompra = 'finalizada';
+      if (pagamentos.length > 0 && pagamentosTotal >= cartTotal) statusCompra = 'finalizada';
 
       let compraId;
       const compraPayload = {
@@ -282,11 +283,14 @@ export default function Compras() {
       // Recalcular status financeiro do fornecedor via RPC
       await supabase.rpc('recalcular_status_fornecedor', { p_fornecedor_id: form.fornecedor_id }).catch(() => {});
 
-      addToast(editingCompra ? 'Compra atualizada com sucesso!' : 'Compra registrada com sucesso!');
+      addToast(editingCompra ? '✅ Compra atualizada com sucesso!' : '✅ Compra registrada com sucesso!', 'success');
       setEditingCompra(null);
-      setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); setFornSearch(''); setShowFornDropdown(false); setFornSearchResults([]); load();
+      setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); setFornSearch(''); setShowFornDropdown(false); setFornSearchResults([]); 
+      await load();
     } catch (err) {
       addToast('Erro inesperado: ' + (err.message || err), 'error');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -592,7 +596,7 @@ export default function Compras() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary" disabled={cartTotal === 0 || (pagamentos.length > 0 && pagamentosTotal !== cartTotal)}>{editingCompra ? 'Salvar Alterações' : 'Finalizar Compra'}</button>
+                <button type="submit" className="btn btn-primary" disabled={saving || cartTotal === 0 || (pagamentos.length > 0 && pagamentosTotal !== cartTotal)}>{saving ? <><div className="spinner" style={{width:16,height:16,marginRight:8}}/> Salvando...</> : editingCompra ? 'Salvar Alterações' : 'Finalizar Compra'}</button>
               </div>
             </form>
           </div>
