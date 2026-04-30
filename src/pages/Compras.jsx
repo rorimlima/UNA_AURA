@@ -211,8 +211,8 @@ export default function Compras() {
     if (pagamentos.length > 0 && pagamentosTotal !== cartTotal) { savingRef.current = false; return addToast('A soma dos pagamentos não bate com o total da compra', 'error'); }
     setSaving(true);
 
-    // Ler o ID da compra diretamente do form (bulletproof, sem closure issues)
-    const compraIdExistente = form._compra_id || null;
+    // Ler o ID da compra diretamente do DOM (imune a stale closure)
+    const compraIdExistente = e.currentTarget.getAttribute('data-compra-id') || null;
 
     try {
       // Determinar status
@@ -469,7 +469,7 @@ export default function Compras() {
         <div className="modal-backdrop" onClick={() => setShowModal(false)}>
           <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxWidth: 900 }}>
             <div className="modal-header"><h3 className="modal-title">{editingCompra ? 'Editar Compra' : 'Nova Compra'}</h3><button className="btn btn-ghost btn-icon" onClick={() => setShowModal(false)}><X size={20} /></button></div>
-            <form onSubmit={handleSave} noValidate>
+            <form onSubmit={handleSave} noValidate data-compra-id={form._compra_id || ''}>
               <div className="modal-body">
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
                   <div className="form-group"><label className="form-label">Fornecedor *</label>

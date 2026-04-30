@@ -32,6 +32,9 @@ export default defineConfig({
         ]
       },
       workbox: {
+        // Forçar atualização imediata do service worker
+        skipWaiting: true,
+        clientsClaim: true,
         // Cache de navegação — permite abrir a app offline
         navigateFallback: 'index.html',
         navigateFallbackAllowlist: [/^(?!\/__).*/],
@@ -42,16 +45,18 @@ export default defineConfig({
         // Runtime caching — cachear requests dinâmicos
         runtimeCaching: [
           {
-            // Cache para a API do Supabase (dados)
-            urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/v1\/.*/i,
+            // Cache para a API do Supabase (SOMENTE leitura GET)
+            urlPattern: ({request, url}) => {
+              return /^https:\/\/.*\.supabase\.co\/rest\/v1\/.*/i.test(url.href) && request.method === 'GET';
+            },
             handler: 'NetworkFirst',
             options: {
               cacheName: 'supabase-api-cache',
               expiration: {
                 maxEntries: 200,
-                maxAgeSeconds: 60 * 60 * 24, // 24 horas
+                maxAgeSeconds: 60 * 60 * 24,
               },
-              networkTimeoutSeconds: 3,
+              networkTimeoutSeconds: 5,
               cacheableResponse: {
                 statuses: [0, 200],
               },
