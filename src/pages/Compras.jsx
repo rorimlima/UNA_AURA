@@ -12,6 +12,7 @@ export default function Compras() {
   const [formasPagamento, setFormasPagamento] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [editingCompra, setEditingCompra] = useState(null);
   const [form, setForm] = useState({ fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
   const [cart, setCart] = useState([]);
   const [pagamentos, setPagamentos] = useState([]); // Multiple payments
@@ -200,6 +201,20 @@ export default function Compras() {
     // Permitir salvar sem pagamento (fica como rascunho/pendente)
     if (pagamentos.length > 0 && pagamentosTotal !== cartTotal) return addToast('A soma dos pagamentos não bate com o total da compra', 'error');
 
+    // Se estiver editando, excluir a compra antiga (itens, contas, estoque) e recriar
+    if (editingCompra) {
+      // Reverter estoque da compra antiga
+      for (const item of (editingCompra.compras_itens || [])) {
+        const { data: prod } = await supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single();
+        if (prod) {
+          await supabase.from('produtos').update({ quantidade_estoque: Math.max(0, (prod.quantidade_estoque || 0) - (item.quantidade || 0)) }).eq('id', item.produto_id);
+        }
+      }
+      await supabase.from('contas_pagar').delete().eq('compra_id', editingCompra.id);
+      await supabase.from('compras_itens').delete().eq('compra_id', editingCompra.id);
+      await supabase.from('compras').delete().eq('id', editingCompra.id);
+    }
+
     // Determinar status usando valores aceitos pela constraint do banco
     // 'finalizada' = pago, 'rascunho' = pendente
     const formasImediatas = formasPagamento.filter(f => f.pagamento_imediato).map(f => f.nome);
@@ -278,6 +293,36 @@ export default function Compras() {
     load();
   }
 
+  function editCompra(c) {
+    setEditingCompra(c);
+    setForm({
+      fornecedor_id: c.fornecedor_id || '',
+      data: c.data || new Date().toISOString().split('T')[0],
+      numero_nota: c.numero_nota || '',
+      numero_pedido: c.numero_pedido || '',
+      observacoes: c.observacoes || ''
+    });
+    setFornSearch(c.fornecedores?.nome || '');
+    // Carregar itens no carrinho
+    const itens = (c.compras_itens || []).map(i => ({
+      produto_id: i.produto_id,
+      quantidade: i.quantidade,
+      valor_unitario: i.valor_unitario
+    }));
+    setCart(itens.length > 0 ? itens : [{ produto_id:'', quantidade:1, valor_unitario:0 }]);
+    setPagamentos([]);
+    setShowModal(true);
+  }
+
+  function openNewCompra() {
+    setEditingCompra(null);
+    setForm({ fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
+    setCart([{ produto_id:'', quantidade:1, valor_unitario:0 }]);
+    setPagamentos([]);
+    setFornSearch('');
+    setShowModal(true);
+  }
+
   const fmt = formatMoney;
 
   const filtered = compras.filter(c => {
@@ -300,7 +345,7 @@ export default function Compras() {
     <div className="animate-fade-in">
       <div className="page-header">
         <div><h2 className="page-title">Compras</h2><p className="page-subtitle">{compras.length} compras registradas</p></div>
-        <button className="btn btn-primary" onClick={openNew}>
+        <button className="btn btn-primary" onClick={openNewCompra}>
           <Plus size={18} /> Nova Compra
         </button>
       </div>
@@ -336,6 +381,7 @@ export default function Compras() {
                   <td><span className={`badge ${c.status === 'finalizada' ? 'badge-success' : c.status === 'cancelada' ? 'badge-danger' : 'badge-warning'}`}>{c.status === 'finalizada' ? 'PAGO' : c.status === 'rascunho' ? 'PENDENTE' : c.status?.toUpperCase()}</span></td>
                   <td style={{ textAlign: 'center' }}>
                     <div style={{ display: 'flex', gap: 'var(--space-1)', justifyContent: 'center' }}>
+                      <button className="btn btn-ghost btn-icon btn-sm" title="Editar compra" onClick={() => editCompra(c)}><Edit2 size={14} /></button>
                       <button className="btn btn-ghost btn-icon btn-sm" title="Excluir compra" onClick={() => deleteCompra(c)} style={{ color: 'var(--color-danger)' }}><Trash2 size={14} /></button>
                     </div>
                   </td>
@@ -356,7 +402,7 @@ export default function Compras() {
       {showModal && (
         <div className="modal-backdrop" onClick={() => setShowModal(false)}>
           <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxWidth: 900 }}>
-            <div className="modal-header"><h3 className="modal-title">Nova Compra</h3><button className="btn btn-ghost btn-icon" onClick={() => setShowModal(false)}><X size={20} /></button></div>
+            <div className="modal-header"><h3 className="modal-title">{editingCompra ? 'Editar Compra' : 'Nova Compra'}</h3><button className="btn btn-ghost btn-icon" onClick={() => setShowModal(false)}><X size={20} /></button></div>
             <form onSubmit={handleSave}>
               <div className="modal-body">
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
@@ -513,7 +559,7 @@ export default function Compras() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary" disabled={pagamentosTotal !== cartTotal || cartTotal === 0}>Finalizar Compra</button>
+                <button type="submit" className="btn btn-primary" disabled={cartTotal === 0 || (pagamentos.length > 0 && pagamentosTotal !== cartTotal)}>{editingCompra ? 'Salvar Alterações' : 'Finalizar Compra'}</button>
               </div>
             </form>
           </div>
