@@ -163,7 +163,7 @@ export default function Compras() {
 
   function openNew() {
     setEditingCompra(null);
-    setForm({ fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
+    setForm({ _compra_id: null, fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
     setCart([]);
     setPagamentos([]);
     setFornSearch('');
@@ -211,25 +211,11 @@ export default function Compras() {
     if (pagamentos.length > 0 && pagamentosTotal !== cartTotal) { savingRef.current = false; return addToast('A soma dos pagamentos não bate com o total da compra', 'error'); }
     setSaving(true);
 
-    try {
-      const isEditing = editingRef.current;
-      // Se estiver editando, reverter estoque e limpar itens/contas (mas NÃO excluir a compra)
-      if (isEditing) {
-        // Reverter estoque da compra antiga
-        for (const item of (isEditing.compras_itens || [])) {
-          const { data: prod } = await supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single();
-          if (prod) {
-            await supabase.from('produtos').update({ quantidade_estoque: Math.max(0, (prod.quantidade_estoque || 0) - (item.quantidade || 0)) }).eq('id', item.produto_id);
-          }
-        }
-        await supabase.from('contas_pagar').delete().eq('compra_id', isEditing.id);
-        await supabase.from('compras_itens').delete().eq('compra_id', isEditing.id);
-      }
+    // Ler o ID da compra diretamente do form (bulletproof, sem closure issues)
+    const compraIdExistente = form._compra_id || null;
 
-      // Determinar status usando valores aceitos pela constraint do banco
-      const formasImediatas = formasPagamento.filter(f => f.pagamento_imediato).map(f => f.nome);
-      const pgtoImediato = pagamentos.filter(p => formasImediatas.includes(p.forma_pagamento));
-      const totalImediato = pgtoImediato.reduce((s, p) => s + (p.valor || 0), 0);
+    try {
+      // Determinar status
       let statusCompra = 'rascunho';
       if (pagamentos.length > 0 && pagamentosTotal >= cartTotal) statusCompra = 'finalizada';
 
@@ -239,63 +225,74 @@ export default function Compras() {
         numero_pedido: form.numero_pedido, total: cartTotal, observacoes: form.observacoes, status: statusCompra
       };
 
-      if (isEditing) {
-        // UPDATE — mantém ID e código sequencial
-        compraId = isEditing.id;
+      if (compraIdExistente) {
+        // ========== EDIÇÃO: UPDATE na compra existente ==========
+        compraId = compraIdExistente;
+
+        // Buscar itens atuais do banco para reverter estoque
+        const { data: itensAntigos } = await supabase.from('compras_itens').select('produto_id, quantidade').eq('compra_id', compraId);
+        for (const item of (itensAntigos || [])) {
+          const { data: prod } = await supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single();
+          if (prod) {
+            await supabase.from('produtos').update({ quantidade_estoque: Math.max(0, (prod.quantidade_estoque || 0) - (item.quantidade || 0)) }).eq('id', item.produto_id);
+          }
+        }
+        // Limpar itens e contas antigos
+        await supabase.from('contas_pagar').delete().eq('compra_id', compraId);
+        await supabase.from('compras_itens').delete().eq('compra_id', compraId);
+        // UPDATE na compra (mantém ID e código)
         const { error } = await supabase.from('compras').update(compraPayload).eq('id', compraId);
-        if (error) return addToast('Erro ao atualizar: ' + error.message, 'error');
+        if (error) { addToast('Erro ao atualizar: ' + error.message, 'error'); return; }
       } else {
-        // INSERT — nova compra
+        // ========== NOVA COMPRA: INSERT ==========
         const { data: compra, error } = await supabase.from('compras').insert(compraPayload).select().single();
-        if (error) return addToast('Erro: ' + error.message, 'error');
+        if (error) { addToast('Erro: ' + error.message, 'error'); return; }
         compraId = compra.id;
       }
 
       // Inserir novos itens
       const itens = cart.map(i => ({ compra_id: compraId, produto_id: i.produto_id, quantidade: i.quantidade, valor_unitario: i.valor_unitario }));
       const { error: itensErr } = await supabase.from('compras_itens').insert(itens);
-      if (itensErr) return addToast('Erro ao salvar itens: ' + itensErr.message, 'error');
+      if (itensErr) { addToast('Erro ao salvar itens: ' + itensErr.message, 'error'); return; }
 
-      // Update stock — somar quantidade comprada ao estoque atual
+      // Somar estoque dos itens novos
       for (const item of cart) {
         const { data: prod } = await supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single();
         if (prod) {
-          const novaQtd = (prod.quantidade_estoque || 0) + item.quantidade;
-          await supabase.from('produtos').update({ quantidade_estoque: novaQtd }).eq('id', item.produto_id);
+          await supabase.from('produtos').update({ quantidade_estoque: (prod.quantidade_estoque || 0) + item.quantidade }).eq('id', item.produto_id);
         }
       }
 
-      // Create contas_pagar para cada pagamento
+      // Gerar contas a pagar
       const parcelasGeradas = [];
       for (const pag of pagamentos) {
         const parcelas = parseInt(pag.parcelas) || 1;
         const valorParcela = Math.round(pag.valor / parcelas);
         const baseVencimento = new Date((pag.primeiro_vencimento || form.data) + 'T12:00:00');
         for (let i = 0; i < parcelas; i++) {
-          const vencimento = new Date(baseVencimento); 
+          const vencimento = new Date(baseVencimento);
           vencimento.setMonth(vencimento.getMonth() + i);
           const dataVenc = vencimento.toISOString().split('T')[0];
           const valFinal = i === parcelas - 1 ? pag.valor - (valorParcela * (parcelas - 1)) : valorParcela;
           parcelasGeradas.push({
             compra_id: compraId, fornecedor_id: form.fornecedor_id,
             descricao: `Compra #${form.numero_nota || compraId.substring(0, 8)} - ${pag.forma_pagamento} ${parcelas > 1 ? `(${i + 1}/${parcelas})` : ''}`,
-            categoria: 'mercadoria', valor: valFinal, data_vencimento: dataVenc, 
+            categoria: 'mercadoria', valor: valFinal, data_vencimento: dataVenc,
             forma_pagamento: pag.forma_pagamento,
-            status: formasImediatas.includes(pag.forma_pagamento) ? 'pago' : 'pendente'
+            status: 'pendente'
           });
         }
       }
       if (parcelasGeradas.length > 0) {
         const { error: cpErr } = await supabase.from('contas_pagar').insert(parcelasGeradas);
-        if (cpErr) addToast('Aviso: erro ao gerar contas a pagar: ' + cpErr.message, 'error');
+        if (cpErr) addToast('Aviso: erro ao gerar contas: ' + cpErr.message, 'error');
       }
 
-      // Recalcular status financeiro do fornecedor via RPC
       await supabase.rpc('recalcular_status_fornecedor', { p_fornecedor_id: form.fornecedor_id }).catch(() => {});
 
-      addToast(isEditing ? '✅ Compra atualizada com sucesso!' : '✅ Compra registrada com sucesso!', 'success');
+      addToast(compraIdExistente ? '✅ Compra atualizada com sucesso!' : '✅ Compra registrada!', 'success');
       setEditingCompra(null);
-      setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); setFornSearch(''); setShowFornDropdown(false); setFornSearchResults([]); 
+      setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); setFornSearch(''); setShowFornDropdown(false); setFornSearchResults([]);
       await load();
     } catch (err) {
       addToast('Erro inesperado: ' + (err.message || err), 'error');
@@ -334,6 +331,7 @@ export default function Compras() {
   async function editCompra(c) {
     setEditingCompra(c);
     setForm({
+      _compra_id: c.id,
       fornecedor_id: c.fornecedor_id || '',
       data: c.data || new Date().toISOString().split('T')[0],
       numero_nota: c.numero_nota || '',
@@ -382,7 +380,7 @@ export default function Compras() {
 
   function openNewCompra() {
     setEditingCompra(null);
-    setForm({ fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
+    setForm({ _compra_id: null, fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
     setCart([{ produto_id:'', quantidade:1, valor_unitario:0 }]);
     setPagamentos([]);
     setFornSearch('');
