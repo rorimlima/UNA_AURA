@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { BarChart3, TrendingUp, TrendingDown, DollarSign, Gem, Package, Lightbulb } from 'lucide-react';
 import { formatMoney } from '../lib/money';
 
 export default function Resultados() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   const [periodo, setPeriodo] = useState('mes');
 
   useEffect(() => { load(); }, [periodo]);

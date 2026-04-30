@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import {
   TrendingUp, DollarSign, ShoppingCart, Users, Award,
   BarChart3, CreditCard, Package, Calendar, Star
@@ -37,6 +38,7 @@ export default function CRM() {
   const [filter, setFilter] = useState('mes');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
 
   useEffect(() => { loadData(); }, [filter]);
 

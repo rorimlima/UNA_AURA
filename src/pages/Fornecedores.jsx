@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
+import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { Plus, Search, Edit2, Trash2, Truck, Phone, Mail, X } from 'lucide-react';
 
 export default function Fornecedores() {
   const { addToast } = useToast();
   const [fornecedores, setFornecedores] = useState([]);
   const [loading, setLoading] = useState(true);
+  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('todos');
   const [showModal, setShowModal] = useState(false);

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
+import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { Upload, Search, Check, Link, X, FileDown, ShieldCheck, Download, FileText, ChevronRight, AlertCircle, Plus } from 'lucide-react';
 import { formatMoney } from '../lib/money';
 
@@ -40,6 +41,7 @@ function parseOFX(ofxString) {
 export default function Conciliacao() {
   const { addToast } = useToast();
   const [loading, setLoading] = useState(true);
+  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   
   const [contasFinanceiras, setContasFinanceiras] = useState([]);
   const [contaSelecionada, setContaSelecionada] = useState('');

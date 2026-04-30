@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
+import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { Plus, Search, Edit2, Trash2, Users, Phone, Mail, X, FileText } from 'lucide-react';
 import FichaClienteModal from '../components/FichaClienteModal';
 import { maskCPF, maskCNPJ, maskPhone } from '../lib/money';
@@ -9,6 +10,7 @@ export default function Clientes() {
   const { addToast } = useToast();
   const [clientes, setClientes] = useState([]);
   const [loading, setLoading] = useState(true);
+  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);

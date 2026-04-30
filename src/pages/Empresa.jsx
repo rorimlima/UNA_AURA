@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
+import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import {
   Building2, Upload, Save, Plus, Trash2, Edit2, X, Check,
   User, Phone, Mail, MapPin, Hash, Percent, Camera,
@@ -35,6 +36,7 @@ export default function Empresa() {
   const [contasBancarias, setContasBancarias] = useState([]);
   const [formasPagamento, setFormasPagamento] = useState([]);
   const [loading, setLoading] = useState(true);
+  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [cepLoading, setCepLoading] = useState(false);

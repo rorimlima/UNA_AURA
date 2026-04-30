@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
+import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import {
   AlertTriangle, Search, MessageCircle, Calendar, Check, DollarSign,
   Filter, Download, Clock, TrendingDown, Phone, X, ChevronDown
@@ -20,6 +21,7 @@ export default function Inadimplencia() {
   const { addToast } = useToast();
   const [inadimplentes, setInadimplentes] = useState([]);
   const [loading, setLoading] = useState(true);
+  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   const [search, setSearch] = useState('');
   const [filtro, setFiltro] = useState('todos');
   const [showPagtoModal, setShowPagtoModal] = useState(false);

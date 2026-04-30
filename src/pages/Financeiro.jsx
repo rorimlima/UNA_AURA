@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
+import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { DollarSign, ArrowDownCircle, ArrowUpCircle, Check, X, Plus, Search, Building2, CreditCard } from 'lucide-react';
 import { formatMoney, toCents } from '../lib/money';
 
@@ -11,6 +12,7 @@ export default function Financeiro() {
   const [contasReceber, setContasReceber] = useState([]);
   const [contasFin, setContasFin] = useState([]);
   const [loading, setLoading] = useState(true);
+  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   const [search, setSearch] = useState('');
   const [showContaModal, setShowContaModal] = useState(false);
   const [contaForm, setContaForm] = useState({ nome:'', tipo:'banco', banco:'', agencia:'', numero_conta:'', saldo_inicial:'' });

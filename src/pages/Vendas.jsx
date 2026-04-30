@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
+import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { Plus, Search, Receipt, X, Trash2, Printer, CheckCircle, DollarSign, TrendingUp } from 'lucide-react';
 import { formatMoney, toCents, toReal } from '../lib/money';
 
@@ -166,6 +167,7 @@ export default function Vendas() {
   const [vendedores, setVendedores] = useState([]);
   const [empresa, setEmpresa] = useState(null);
   const [loading, setLoading] = useState(true);
+  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ cliente_id: '', vendedor_id: '', data: new Date().toISOString().split('T')[0], numero_pedido: '', observacoes: '' });
   const [cart, setCart] = useState([]);

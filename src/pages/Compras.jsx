@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
+import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { Plus, Search, ShoppingCart, X, Trash2, DollarSign, TrendingDown, Edit2 } from 'lucide-react';
 import { formatMoney, toCents, toReal } from '../lib/money';
 
@@ -11,6 +12,7 @@ export default function Compras() {
   const [produtos, setProdutos] = useState([]);
   const [formasPagamento, setFormasPagamento] = useState([]);
   const [loading, setLoading] = useState(true);
+  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingCompra, _setEditingCompra] = useState(null);

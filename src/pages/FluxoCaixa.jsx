@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { TrendingUp, TrendingDown, DollarSign, Calendar, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { downloadICS } from '../lib/googleCalendar';
 import { useToast } from '../contexts/ToastContext';
+import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { formatMoney } from '../lib/money';
 
 const PERIODOS = [
@@ -18,6 +19,7 @@ export default function FluxoCaixa() {
   const [periodo, setPeriodo] = useState(30);
   const [dados, setDados] = useState([]);
   const [loading, setLoading] = useState(true);
+  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   const [totais, setTotais] = useState({ entradas: 0, saidas: 0, saldo: 0 });
 
   useEffect(() => { load(); }, [periodo]);

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import {
   TrendingUp, TrendingDown, Package, ShoppingCart,
   AlertTriangle, DollarSign, Users, BarChart3,
@@ -22,6 +23,7 @@ export default function Dashboard() {
     aniversariantesMes: [],
   });
   const [loading, setLoading] = useState(true);
+  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
 
   useEffect(() => {
     loadDashboard();

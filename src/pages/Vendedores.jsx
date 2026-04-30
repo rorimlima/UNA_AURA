@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
+import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { Plus, Search, Edit2, Trash2, UserCheck, Phone, X, Camera, TrendingUp, Calendar, DollarSign, Award } from 'lucide-react';
 import { formatMoney } from '../lib/money';
 
@@ -8,6 +9,7 @@ export default function Vendedores() {
   const { addToast } = useToast();
   const [vendedores, setVendedores] = useState([]);
   const [loading, setLoading] = useState(true);
+  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
