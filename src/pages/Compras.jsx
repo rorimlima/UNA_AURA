@@ -13,7 +13,9 @@ export default function Compras() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [editingCompra, setEditingCompra] = useState(null);
+  const [editingCompra, _setEditingCompra] = useState(null);
+  const editingRef = useRef(null);
+  function setEditingCompra(val) { editingRef.current = val; _setEditingCompra(val); }
   const [form, setForm] = useState({ fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
   const [cart, setCart] = useState([]);
   const [pagamentos, setPagamentos] = useState([]); // Multiple payments
@@ -210,17 +212,18 @@ export default function Compras() {
     setSaving(true);
 
     try {
+      const isEditing = editingRef.current;
       // Se estiver editando, reverter estoque e limpar itens/contas (mas NÃO excluir a compra)
-      if (editingCompra) {
+      if (isEditing) {
         // Reverter estoque da compra antiga
-        for (const item of (editingCompra.compras_itens || [])) {
+        for (const item of (isEditing.compras_itens || [])) {
           const { data: prod } = await supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single();
           if (prod) {
             await supabase.from('produtos').update({ quantidade_estoque: Math.max(0, (prod.quantidade_estoque || 0) - (item.quantidade || 0)) }).eq('id', item.produto_id);
           }
         }
-        await supabase.from('contas_pagar').delete().eq('compra_id', editingCompra.id);
-        await supabase.from('compras_itens').delete().eq('compra_id', editingCompra.id);
+        await supabase.from('contas_pagar').delete().eq('compra_id', isEditing.id);
+        await supabase.from('compras_itens').delete().eq('compra_id', isEditing.id);
       }
 
       // Determinar status usando valores aceitos pela constraint do banco
@@ -236,9 +239,9 @@ export default function Compras() {
         numero_pedido: form.numero_pedido, total: cartTotal, observacoes: form.observacoes, status: statusCompra
       };
 
-      if (editingCompra) {
+      if (isEditing) {
         // UPDATE — mantém ID e código sequencial
-        compraId = editingCompra.id;
+        compraId = isEditing.id;
         const { error } = await supabase.from('compras').update(compraPayload).eq('id', compraId);
         if (error) return addToast('Erro ao atualizar: ' + error.message, 'error');
       } else {
@@ -290,7 +293,7 @@ export default function Compras() {
       // Recalcular status financeiro do fornecedor via RPC
       await supabase.rpc('recalcular_status_fornecedor', { p_fornecedor_id: form.fornecedor_id }).catch(() => {});
 
-      addToast(editingCompra ? '✅ Compra atualizada com sucesso!' : '✅ Compra registrada com sucesso!', 'success');
+      addToast(isEditing ? '✅ Compra atualizada com sucesso!' : '✅ Compra registrada com sucesso!', 'success');
       setEditingCompra(null);
       setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); setFornSearch(''); setShowFornDropdown(false); setFornSearchResults([]); 
       await load();
@@ -328,7 +331,7 @@ export default function Compras() {
     }
   }
 
-  function editCompra(c) {
+  async function editCompra(c) {
     setEditingCompra(c);
     setForm({
       fornecedor_id: c.fornecedor_id || '',
@@ -353,7 +356,27 @@ export default function Compras() {
     });
     setProdSearches(searches);
     setProdDropdowns({});
-    setPagamentos([]);
+    // Carregar pagamentos existentes do banco
+    const { data: contasPagar } = await supabase
+      .from('contas_pagar')
+      .select('*')
+      .eq('compra_id', c.id)
+      .order('data_vencimento');
+    if (contasPagar && contasPagar.length > 0) {
+      // Agrupar por forma_pagamento (parcelas ficam em um único registro)
+      const pgMap = {};
+      contasPagar.forEach(cp => {
+        const key = cp.forma_pagamento || 'Outros';
+        if (!pgMap[key]) {
+          pgMap[key] = { id: Date.now() + Math.random(), forma_pagamento: key, valor: 0, parcelas: 0, primeiro_vencimento: cp.data_vencimento };
+        }
+        pgMap[key].valor += cp.valor || 0;
+        pgMap[key].parcelas += 1;
+      });
+      setPagamentos(Object.values(pgMap));
+    } else {
+      setPagamentos([]);
+    }
     setShowModal(true);
   }
 
