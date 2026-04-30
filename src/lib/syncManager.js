@@ -58,6 +58,7 @@ const SYNC_TABLES = [
 // ─── Estado global ──────────────────────────────────────────────────────────
 
 let _isSyncing = false;
+let _syncStartedAt = null;
 let _listeners = [];
 const MAX_RETRIES = 5;
 
@@ -88,7 +89,12 @@ export async function syncTable(tableName) {
   }
 
   try {
-    const { data, error } = await config.query();
+    // Timeout de 15s por tabela para evitar travamento
+    const queryPromise = config.query();
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(`Timeout sincronizando ${tableName}`)), 15000)
+    );
+    const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
     if (error) throw error;
 
     // Limpa e recarrega (full sync simples para datasets pequenos)
@@ -101,7 +107,7 @@ export async function syncTable(tableName) {
     console.log(`[SyncManager] ✓ ${tableName}: ${data?.length || 0} registros`);
     return true;
   } catch (err) {
-    console.error(`[SyncManager] ✗ Erro sincronizando ${tableName}:`, err);
+    console.error(`[SyncManager] ✗ Erro sincronizando ${tableName}:`, err?.message || err);
     return false;
   }
 }
@@ -111,11 +117,18 @@ export async function syncTable(tableName) {
  */
 export async function syncAll() {
   if (_isSyncing) {
-    console.log('[SyncManager] Sincronização já em andamento, ignorando...');
-    return;
+    // Auto-release após 30s para evitar deadlock
+    if (_syncStartedAt && (Date.now() - _syncStartedAt > 30000)) {
+      console.warn('[SyncManager] Sync travado detectado, resetando flag...');
+      _isSyncing = false;
+    } else {
+      console.log('[SyncManager] Sincronização já em andamento, ignorando...');
+      return;
+    }
   }
 
   _isSyncing = true;
+  _syncStartedAt = Date.now();
   _notify({ type: 'sync_start' });
 
   const results = {};

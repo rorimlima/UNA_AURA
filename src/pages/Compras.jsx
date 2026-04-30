@@ -9,6 +9,7 @@ export default function Compras() {
   const [compras, setCompras] = useState([]);
   const [fornecedores, setFornecedores] = useState([]);
   const [produtos, setProdutos] = useState([]);
+  const [formasPagamento, setFormasPagamento] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
@@ -106,17 +107,20 @@ export default function Compras() {
     setProdDropdowns(prev => ({ ...prev, [idx]: false }));
   }
 
-  const fmtPag = { pix: 'PIX', dinheiro: 'Dinheiro', credito: 'Cartão Crédito', debito: 'Cartão Débito', boleto: 'Boleto', deposito: 'Depósito' };
+  // Build display map from dynamic formas_pagamento
+  const fmtPag = Object.fromEntries(formasPagamento.map(f => [f.nome, f.nome]));
 
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const [{ data: c }, { data: f }, { data: p }] = await Promise.all([
+    const [{ data: c }, { data: f }, { data: p }, { data: fp }] = await Promise.all([
       supabase.from('compras').select('*, fornecedores(nome), compras_itens(*, produtos(nome))').order('data', { ascending: false }),
       supabase.from('fornecedores').select('id, nome, codigo, tipo, documento, telefone, email, status_financeiro').order('nome'),
       supabase.from('produtos').select('id, nome, codigo, referencia, custo_unitario').eq('ativo', true).order('nome'),
+      supabase.from('formas_pagamento').select('*').eq('ativa', true).order('nome'),
     ]);
     setCompras(c || []); setFornecedores(f || []); setProdutos(p || []);
+    setFormasPagamento(fp || []);
     setLoading(false);
   }
 
@@ -141,7 +145,8 @@ export default function Compras() {
   function addPagamento() {
     const defaultData = form.data || new Date().toISOString().split('T')[0];
     const remanescente = Math.max(0, cartTotal - pagamentosTotal);
-    setPagamentos([...pagamentos, { id: Date.now(), forma_pagamento: 'pix', valor: remanescente, parcelas: 1, primeiro_vencimento: defaultData }]);
+    const defaultForma = formasPagamento.length > 0 ? formasPagamento[0].nome : 'PIX';
+    setPagamentos([...pagamentos, { id: Date.now(), forma_pagamento: defaultForma, valor: remanescente, parcelas: 1, primeiro_vencimento: defaultData }]);
   }
   function updatePagamento(idx, field, value) {
     const p = [...pagamentos];
@@ -195,12 +200,13 @@ export default function Compras() {
     if (pagamentos.length === 0) return addToast('Adicione pelo menos uma forma de pagamento', 'error');
     if (pagamentosTotal !== cartTotal) return addToast('A soma dos pagamentos não bate com o total da compra', 'error');
 
-    // Determinar status: PENDENTE, PARCIAL, PAGO
-    let statusCompra = 'PENDENTE';
-    const pgtoImediato = pagamentos.filter(p => ['pix','dinheiro','debito','deposito'].includes(p.forma_pagamento));
+    // Determinar status usando valores aceitos pela constraint do banco
+    // 'finalizada' = pago, 'rascunho' = pendente
+    const formasImediatas = formasPagamento.filter(f => f.pagamento_imediato).map(f => f.nome);
+    const pgtoImediato = pagamentos.filter(p => formasImediatas.includes(p.forma_pagamento));
     const totalImediato = pgtoImediato.reduce((s, p) => s + (p.valor || 0), 0);
-    if (totalImediato >= cartTotal) statusCompra = 'PAGO';
-    else if (totalImediato > 0) statusCompra = 'PARCIAL';
+    let statusCompra = 'rascunho'; // pendente
+    if (totalImediato >= cartTotal) statusCompra = 'finalizada'; // pago
 
     const { data: compra, error } = await supabase.from('compras').insert({
       fornecedor_id: form.fornecedor_id, data: form.data, numero_nota: form.numero_nota,
@@ -234,10 +240,10 @@ export default function Compras() {
         const valFinal = i === parcelas - 1 ? pag.valor - (valorParcela * (parcelas - 1)) : valorParcela;
         parcelasGeradas.push({
           compra_id: compra.id, fornecedor_id: form.fornecedor_id,
-          descricao: `Compra #${form.numero_nota || compra.id.substring(0, 8)} - ${fmtPag[pag.forma_pagamento] || pag.forma_pagamento} ${parcelas > 1 ? `(${i + 1}/${parcelas})` : ''}`,
+          descricao: `Compra #${form.numero_nota || compra.id.substring(0, 8)} - ${pag.forma_pagamento} ${parcelas > 1 ? `(${i + 1}/${parcelas})` : ''}`,
           categoria: 'mercadoria', valor: valFinal, data_vencimento: dataVenc, 
           forma_pagamento: pag.forma_pagamento,
-          status: ['pix','dinheiro','debito','deposito'].includes(pag.forma_pagamento) ? 'pago' : 'pendente'
+          status: formasImediatas.includes(pag.forma_pagamento) ? 'pago' : 'pendente'
         });
       }
     }
@@ -263,7 +269,7 @@ export default function Compras() {
 
   // KPIs comerciais
   const totalComprasGeral = compras.reduce((s, c) => s + (c.total || 0), 0);
-  const totalPagas = compras.filter(c => c.status === 'PAGO' || c.status === 'finalizada').reduce((s, c) => s + (c.total || 0), 0);
+  const totalPagas = compras.filter(c => c.status === 'finalizada').reduce((s, c) => s + (c.total || 0), 0);
   const totalPendente = totalComprasGeral - totalPagas;
 
   if (loading) return <div className="dashboard-loading"><div className="spinner spinner-lg" /></div>;
@@ -305,7 +311,7 @@ export default function Compras() {
                   <td>{c.numero_nota || '—'}</td>
                   <td>{c.compras_itens?.length || 0}</td>
                   <td style={{ fontWeight: 600, fontFamily: 'monospace', letterSpacing: '0.5px', textAlign: 'right' }}>{fmt(c.total)}</td>
-                  <td><span className={`badge ${c.status === 'PAGO' || c.status === 'finalizada' ? 'badge-success' : c.status === 'PARCIAL' ? 'badge-warning' : 'badge-danger'}`}>{c.status}</span></td>
+                  <td><span className={`badge ${c.status === 'finalizada' ? 'badge-success' : c.status === 'cancelada' ? 'badge-danger' : 'badge-warning'}`}>{c.status === 'finalizada' ? 'PAGO' : c.status === 'rascunho' ? 'PENDENTE' : c.status?.toUpperCase()}</span></td>
                 </tr>
               ))}
             </tbody>
@@ -443,7 +449,8 @@ export default function Compras() {
                           <div className="form-group" style={{ marginBottom: 0, flex: 1 }}>
                             <label className="form-label" style={{ fontSize: 11 }}>Forma</label>
                             <select className="form-select" value={pag.forma_pagamento} onChange={e => updatePagamento(idx, 'forma_pagamento', e.target.value)}>
-                              <option value="pix">PIX</option><option value="dinheiro">Dinheiro</option><option value="credito">Cartão Crédito</option><option value="debito">Cartão Débito</option><option value="boleto">Boleto</option><option value="deposito">Depósito</option>
+                              {formasPagamento.map(fp => <option key={fp.id} value={fp.nome}>{fp.nome}</option>)}
+                              {formasPagamento.length === 0 && <option value="PIX">PIX</option>}
                             </select>
                           </div>
                           <div className="form-group" style={{ marginBottom: 0 }}>

@@ -69,17 +69,38 @@ export function OfflineProvider({ children }) {
     };
   }, []);
 
-  // Sincronização inicial ao carregar a app
+  // Sincronização inicial ao carregar a app (com timeout de segurança)
   useEffect(() => {
     if (!initialSyncDone.current && isOnline) {
       initialSyncDone.current = true;
       // Pequeno delay para não bloquear o render inicial
       const timer = setTimeout(() => {
         syncManager.syncAll().catch(console.error);
-      }, 2000);
+      }, 2500);
       return () => clearTimeout(timer);
     }
   }, [isOnline]);
+
+  // Ao retornar ao app (visibility change), fazer sync leve se necessário
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible' && navigator.onLine && !isSyncing) {
+        // Só re-sincroniza se faz mais de 5 minutos desde o último sync
+        const last = lastSync ? new Date(lastSync) : null;
+        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+        if (!last || last < fiveMinAgo) {
+          // Delay para estabilizar conexão ao voltar
+          setTimeout(() => {
+            if (document.visibilityState === 'visible') {
+              syncManager.syncAll().catch(console.error);
+            }
+          }, 1500);
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isSyncing, lastSync]);
 
   // Atualiza contagem de operações pendentes
   async function _refreshPendingCount() {
@@ -104,10 +125,10 @@ export function OfflineProvider({ children }) {
     }
   }, []);
 
-  // Refresh da contagem periodicamente
+  // Refresh da contagem periodicamente (reduzido para 60s)
   useEffect(() => {
     _refreshPendingCount();
-    const interval = setInterval(_refreshPendingCount, 30000); // a cada 30s
+    const interval = setInterval(_refreshPendingCount, 60000);
     return () => clearInterval(interval);
   }, []);
 
