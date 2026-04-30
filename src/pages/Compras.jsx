@@ -202,7 +202,7 @@ export default function Compras() {
     if (pagamentos.length > 0 && pagamentosTotal !== cartTotal) return addToast('A soma dos pagamentos não bate com o total da compra', 'error');
 
     try {
-      // Se estiver editando, excluir a compra antiga (itens, contas, estoque) e recriar
+      // Se estiver editando, reverter estoque e limpar itens/contas (mas NÃO excluir a compra)
       if (editingCompra) {
         // Reverter estoque da compra antiga
         for (const item of (editingCompra.compras_itens || [])) {
@@ -213,8 +213,6 @@ export default function Compras() {
         }
         await supabase.from('contas_pagar').delete().eq('compra_id', editingCompra.id);
         await supabase.from('compras_itens').delete().eq('compra_id', editingCompra.id);
-        const { error: delErr } = await supabase.from('compras').delete().eq('id', editingCompra.id);
-        if (delErr) return addToast('Erro ao excluir compra antiga: ' + delErr.message, 'error');
       }
 
       // Determinar status usando valores aceitos pela constraint do banco
@@ -224,15 +222,26 @@ export default function Compras() {
       let statusCompra = 'rascunho';
       if (pagamentos.length > 0 && totalImediato >= cartTotal) statusCompra = 'finalizada';
 
-      const { data: compra, error } = await supabase.from('compras').insert({
+      let compraId;
+      const compraPayload = {
         fornecedor_id: form.fornecedor_id, data: form.data, numero_nota: form.numero_nota,
         numero_pedido: form.numero_pedido, total: cartTotal, observacoes: form.observacoes, status: statusCompra
-      }).select().single();
+      };
 
-      if (error) return addToast('Erro: ' + error.message, 'error');
+      if (editingCompra) {
+        // UPDATE — mantém ID e código sequencial
+        compraId = editingCompra.id;
+        const { error } = await supabase.from('compras').update(compraPayload).eq('id', compraId);
+        if (error) return addToast('Erro ao atualizar: ' + error.message, 'error');
+      } else {
+        // INSERT — nova compra
+        const { data: compra, error } = await supabase.from('compras').insert(compraPayload).select().single();
+        if (error) return addToast('Erro: ' + error.message, 'error');
+        compraId = compra.id;
+      }
 
-      // Limpar itens — remover campos extras (produtos nested, etc.)
-      const itens = cart.map(i => ({ compra_id: compra.id, produto_id: i.produto_id, quantidade: i.quantidade, valor_unitario: i.valor_unitario }));
+      // Inserir novos itens
+      const itens = cart.map(i => ({ compra_id: compraId, produto_id: i.produto_id, quantidade: i.quantidade, valor_unitario: i.valor_unitario }));
       const { error: itensErr } = await supabase.from('compras_itens').insert(itens);
       if (itensErr) return addToast('Erro ao salvar itens: ' + itensErr.message, 'error');
 
@@ -257,8 +266,8 @@ export default function Compras() {
           const dataVenc = vencimento.toISOString().split('T')[0];
           const valFinal = i === parcelas - 1 ? pag.valor - (valorParcela * (parcelas - 1)) : valorParcela;
           parcelasGeradas.push({
-            compra_id: compra.id, fornecedor_id: form.fornecedor_id,
-            descricao: `Compra #${form.numero_nota || compra.id.substring(0, 8)} - ${pag.forma_pagamento} ${parcelas > 1 ? `(${i + 1}/${parcelas})` : ''}`,
+            compra_id: compraId, fornecedor_id: form.fornecedor_id,
+            descricao: `Compra #${form.numero_nota || compraId.substring(0, 8)} - ${pag.forma_pagamento} ${parcelas > 1 ? `(${i + 1}/${parcelas})` : ''}`,
             categoria: 'mercadoria', valor: valFinal, data_vencimento: dataVenc, 
             forma_pagamento: pag.forma_pagamento,
             status: formasImediatas.includes(pag.forma_pagamento) ? 'pago' : 'pendente'
