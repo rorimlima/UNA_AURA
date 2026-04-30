@@ -282,25 +282,29 @@ export default function Compras() {
   }
 
   async function deleteCompra(compra) {
-    if (!confirm(`Excluir compra ${compra.numero_nota || compra.id.substring(0, 8)}? O estoque será revertido.`)) return;
-    // 1. Reverter estoque — subtrair quantidades dos itens
-    const itens = compra.compras_itens || [];
-    for (const item of itens) {
-      const { data: prod } = await supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single();
-      if (prod) {
-        const novaQtd = Math.max(0, (prod.quantidade_estoque || 0) - (item.quantidade || 0));
-        await supabase.from('produtos').update({ quantidade_estoque: novaQtd }).eq('id', item.produto_id);
+    if (!confirm(`Excluir compra #${compra.codigo || '?'}? O estoque será revertido.`)) return;
+    try {
+      // 1. Reverter estoque — subtrair quantidades dos itens
+      const itens = compra.compras_itens || [];
+      for (const item of itens) {
+        const { data: prod } = await supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single();
+        if (prod) {
+          const novaQtd = Math.max(0, (prod.quantidade_estoque || 0) - (item.quantidade || 0));
+          await supabase.from('produtos').update({ quantidade_estoque: novaQtd }).eq('id', item.produto_id);
+        }
       }
+      // 2. Excluir contas a pagar vinculadas
+      await supabase.from('contas_pagar').delete().eq('compra_id', compra.id);
+      // 3. Excluir itens da compra
+      await supabase.from('compras_itens').delete().eq('compra_id', compra.id);
+      // 4. Excluir a compra
+      const { error } = await supabase.from('compras').delete().eq('id', compra.id);
+      if (error) return addToast('Erro ao excluir: ' + error.message, 'error');
+      addToast('Compra excluída e estoque revertido!');
+      load();
+    } catch (err) {
+      addToast('Erro inesperado ao excluir: ' + (err.message || err), 'error');
     }
-    // 2. Excluir contas a pagar vinculadas
-    await supabase.from('contas_pagar').delete().eq('compra_id', compra.id);
-    // 3. Excluir itens da compra
-    await supabase.from('compras_itens').delete().eq('compra_id', compra.id);
-    // 4. Excluir a compra
-    const { error } = await supabase.from('compras').delete().eq('id', compra.id);
-    if (error) return addToast('Erro ao excluir: ' + error.message, 'error');
-    addToast('Compra excluída e estoque revertido!');
-    load();
   }
 
   function editCompra(c) {
@@ -345,7 +349,8 @@ export default function Compras() {
 
   const filtered = compras.filter(c => {
     const q = search.toLowerCase();
-    return (c.fornecedores?.nome || '').toLowerCase().includes(q) ||
+    return (c.codigo?.toString() || '').includes(q) ||
+      (c.fornecedores?.nome || '').toLowerCase().includes(q) ||
       (c.numero_nota || '').toLowerCase().includes(q) ||
       (c.numero_pedido || '').toLowerCase().includes(q) ||
       (c.status || '').toLowerCase().includes(q) ||
@@ -387,10 +392,11 @@ export default function Compras() {
       ) : (
         <div className="glass-card" style={{ overflow: 'auto' }}>
           <table className="data-table">
-            <thead><tr><th>Data</th><th>Fornecedor</th><th>Nota</th><th>Itens</th><th style={{ textAlign: 'right' }}>Total (R$)</th><th>Status</th><th style={{ textAlign: 'center' }}>Ações</th></tr></thead>
+            <thead><tr><th>#</th><th>Data</th><th>Fornecedor</th><th>Nota</th><th>Itens</th><th style={{ textAlign: 'right' }}>Total (R$)</th><th>Status</th><th style={{ textAlign: 'center' }}>Ações</th></tr></thead>
             <tbody>
               {filtered.map(c => (
                 <tr key={c.id}>
+                  <td><span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-gold)' }}>{c.codigo || '—'}</span></td>
                   <td>{new Date(c.data).toLocaleDateString('pt-BR')}</td>
                   <td style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{c.fornecedores?.nome || '—'}</td>
                   <td>{c.numero_nota || '—'}</td>
@@ -408,7 +414,7 @@ export default function Compras() {
             </tbody>
             <tfoot>
               <tr style={{ borderTop: '2px solid var(--color-gold)' }}>
-                <td colSpan={5} style={{ textAlign: 'right', fontWeight: 700, fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Filtrado:</td>
+                <td colSpan={6} style={{ textAlign: 'right', fontWeight: 700, fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Filtrado:</td>
                 <td style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 'var(--text-base)', color: 'var(--color-gold)', textAlign: 'right' }}>{fmt(filtered.reduce((s, c) => s + (c.total || 0), 0))}</td>
                 <td></td>
               </tr>
