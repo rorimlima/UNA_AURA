@@ -52,14 +52,15 @@ export default function Estoque() {
     e.preventDefault();
     if (!form.nome.trim()) return addToast('Nome obrigatório','error');
     const payload = { 
-      ...form, 
       nome: (form.nome || '').toUpperCase(),
-      codigo: (form.codigo || '').toUpperCase(),
-      referencia: (form.referencia || '').toUpperCase(),
-      descricao: (form.descricao || '').toUpperCase(),
+      codigo: form.codigo?.trim() ? form.codigo.trim().toUpperCase() : null,
+      referencia: form.referencia?.trim() ? form.referencia.trim().toUpperCase() : null,
+      categoria: form.categoria || null,
+      descricao: form.descricao ? form.descricao.toUpperCase() : null,
       custo_unitario: toCents(form.custo_unitario), 
       preco_venda: toCents(form.preco_venda), 
-      estoque_minimo: parseInt(form.estoque_minimo)||5 
+      estoque_minimo: parseInt(form.estoque_minimo)||5,
+      imagens: form.imagens || []
     };
     if (editing) {
       const { error } = await supabase.from('produtos').update(payload).eq('id', editing.id);
