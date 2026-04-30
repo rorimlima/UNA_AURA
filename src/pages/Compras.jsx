@@ -421,7 +421,7 @@ export default function Compras() {
         <div className="modal-backdrop" onClick={() => setShowModal(false)}>
           <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxWidth: 900 }}>
             <div className="modal-header"><h3 className="modal-title">{editingCompra ? 'Editar Compra' : 'Nova Compra'}</h3><button className="btn btn-ghost btn-icon" onClick={() => setShowModal(false)}><X size={20} /></button></div>
-            <form onSubmit={handleSave}>
+            <form onSubmit={handleSave} noValidate>
               <div className="modal-body">
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
                   <div className="form-group"><label className="form-label">Fornecedor *</label>
