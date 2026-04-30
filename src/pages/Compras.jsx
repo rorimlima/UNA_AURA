@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
-import { Plus, Search, ShoppingCart, X, Trash2, DollarSign, TrendingDown } from 'lucide-react';
+import { Plus, Search, ShoppingCart, X, Trash2, DollarSign, TrendingDown, Edit2 } from 'lucide-react';
 import { formatMoney, toCents, toReal } from '../lib/money';
 
 export default function Compras() {
@@ -218,13 +218,13 @@ export default function Compras() {
     const itens = cart.map(i => ({ compra_id: compra.id, produto_id: i.produto_id, quantidade: i.quantidade, valor_unitario: i.valor_unitario }));
     await supabase.from('compras_itens').insert(itens);
 
-    // Update stock
+    // Update stock — somar quantidade comprada ao estoque atual
     for (const item of cart) {
-      await supabase.rpc('increment_stock', { p_id: item.produto_id, qty: item.quantidade }).catch(() => {
-        supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single().then(({ data: prod }) => {
-          supabase.from('produtos').update({ quantidade_estoque: (prod?.quantidade_estoque || 0) + item.quantidade }).eq('id', item.produto_id);
-        });
-      });
+      const { data: prod } = await supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single();
+      if (prod) {
+        const novaQtd = (prod.quantidade_estoque || 0) + item.quantidade;
+        await supabase.from('produtos').update({ quantidade_estoque: novaQtd }).eq('id', item.produto_id);
+      }
     }
 
     // Create contas_pagar para cada pagamento
@@ -254,6 +254,28 @@ export default function Compras() {
 
     addToast('Compra registrada com sucesso!');
     setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); setFornSearch(''); setShowFornDropdown(false); setFornSearchResults([]); load();
+  }
+
+  async function deleteCompra(compra) {
+    if (!confirm(`Excluir compra ${compra.numero_nota || compra.id.substring(0, 8)}? O estoque será revertido.`)) return;
+    // 1. Reverter estoque — subtrair quantidades dos itens
+    const itens = compra.compras_itens || [];
+    for (const item of itens) {
+      const { data: prod } = await supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single();
+      if (prod) {
+        const novaQtd = Math.max(0, (prod.quantidade_estoque || 0) - (item.quantidade || 0));
+        await supabase.from('produtos').update({ quantidade_estoque: novaQtd }).eq('id', item.produto_id);
+      }
+    }
+    // 2. Excluir contas a pagar vinculadas
+    await supabase.from('contas_pagar').delete().eq('compra_id', compra.id);
+    // 3. Excluir itens da compra
+    await supabase.from('compras_itens').delete().eq('compra_id', compra.id);
+    // 4. Excluir a compra
+    const { error } = await supabase.from('compras').delete().eq('id', compra.id);
+    if (error) return addToast('Erro ao excluir: ' + error.message, 'error');
+    addToast('Compra excluída e estoque revertido!');
+    load();
   }
 
   const fmt = formatMoney;
@@ -302,7 +324,7 @@ export default function Compras() {
       ) : (
         <div className="glass-card" style={{ overflow: 'auto' }}>
           <table className="data-table">
-            <thead><tr><th>Data</th><th>Fornecedor</th><th>Nota</th><th>Itens</th><th style={{ textAlign: 'right' }}>Total (R$)</th><th>Status</th></tr></thead>
+            <thead><tr><th>Data</th><th>Fornecedor</th><th>Nota</th><th>Itens</th><th style={{ textAlign: 'right' }}>Total (R$)</th><th>Status</th><th style={{ textAlign: 'center' }}>Ações</th></tr></thead>
             <tbody>
               {filtered.map(c => (
                 <tr key={c.id}>
@@ -312,12 +334,17 @@ export default function Compras() {
                   <td>{c.compras_itens?.length || 0}</td>
                   <td style={{ fontWeight: 600, fontFamily: 'monospace', letterSpacing: '0.5px', textAlign: 'right' }}>{fmt(c.total)}</td>
                   <td><span className={`badge ${c.status === 'finalizada' ? 'badge-success' : c.status === 'cancelada' ? 'badge-danger' : 'badge-warning'}`}>{c.status === 'finalizada' ? 'PAGO' : c.status === 'rascunho' ? 'PENDENTE' : c.status?.toUpperCase()}</span></td>
+                  <td style={{ textAlign: 'center' }}>
+                    <div style={{ display: 'flex', gap: 'var(--space-1)', justifyContent: 'center' }}>
+                      <button className="btn btn-ghost btn-icon btn-sm" title="Excluir compra" onClick={() => deleteCompra(c)} style={{ color: 'var(--color-danger)' }}><Trash2 size={14} /></button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ borderTop: '2px solid var(--color-gold)' }}>
-                <td colSpan={4} style={{ textAlign: 'right', fontWeight: 700, fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Filtrado:</td>
+                <td colSpan={5} style={{ textAlign: 'right', fontWeight: 700, fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Filtrado:</td>
                 <td style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 'var(--text-base)', color: 'var(--color-gold)', textAlign: 'right' }}>{fmt(filtered.reduce((s, c) => s + (c.total || 0), 0))}</td>
                 <td></td>
               </tr>
