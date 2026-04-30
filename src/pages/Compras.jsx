@@ -201,74 +201,84 @@ export default function Compras() {
     // Permitir salvar sem pagamento (fica como rascunho/pendente)
     if (pagamentos.length > 0 && pagamentosTotal !== cartTotal) return addToast('A soma dos pagamentos não bate com o total da compra', 'error');
 
-    // Se estiver editando, excluir a compra antiga (itens, contas, estoque) e recriar
-    if (editingCompra) {
-      // Reverter estoque da compra antiga
-      for (const item of (editingCompra.compras_itens || [])) {
+    try {
+      // Se estiver editando, excluir a compra antiga (itens, contas, estoque) e recriar
+      if (editingCompra) {
+        // Reverter estoque da compra antiga
+        for (const item of (editingCompra.compras_itens || [])) {
+          const { data: prod } = await supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single();
+          if (prod) {
+            await supabase.from('produtos').update({ quantidade_estoque: Math.max(0, (prod.quantidade_estoque || 0) - (item.quantidade || 0)) }).eq('id', item.produto_id);
+          }
+        }
+        await supabase.from('contas_pagar').delete().eq('compra_id', editingCompra.id);
+        await supabase.from('compras_itens').delete().eq('compra_id', editingCompra.id);
+        const { error: delErr } = await supabase.from('compras').delete().eq('id', editingCompra.id);
+        if (delErr) return addToast('Erro ao excluir compra antiga: ' + delErr.message, 'error');
+      }
+
+      // Determinar status usando valores aceitos pela constraint do banco
+      const formasImediatas = formasPagamento.filter(f => f.pagamento_imediato).map(f => f.nome);
+      const pgtoImediato = pagamentos.filter(p => formasImediatas.includes(p.forma_pagamento));
+      const totalImediato = pgtoImediato.reduce((s, p) => s + (p.valor || 0), 0);
+      let statusCompra = 'rascunho';
+      if (pagamentos.length > 0 && totalImediato >= cartTotal) statusCompra = 'finalizada';
+
+      const { data: compra, error } = await supabase.from('compras').insert({
+        fornecedor_id: form.fornecedor_id, data: form.data, numero_nota: form.numero_nota,
+        numero_pedido: form.numero_pedido, total: cartTotal, observacoes: form.observacoes, status: statusCompra
+      }).select().single();
+
+      if (error) return addToast('Erro: ' + error.message, 'error');
+
+      // Limpar itens — remover campos extras (produtos nested, etc.)
+      const itens = cart.map(i => ({ compra_id: compra.id, produto_id: i.produto_id, quantidade: i.quantidade, valor_unitario: i.valor_unitario }));
+      const { error: itensErr } = await supabase.from('compras_itens').insert(itens);
+      if (itensErr) return addToast('Erro ao salvar itens: ' + itensErr.message, 'error');
+
+      // Update stock — somar quantidade comprada ao estoque atual
+      for (const item of cart) {
         const { data: prod } = await supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single();
         if (prod) {
-          await supabase.from('produtos').update({ quantidade_estoque: Math.max(0, (prod.quantidade_estoque || 0) - (item.quantidade || 0)) }).eq('id', item.produto_id);
+          const novaQtd = (prod.quantidade_estoque || 0) + item.quantidade;
+          await supabase.from('produtos').update({ quantidade_estoque: novaQtd }).eq('id', item.produto_id);
         }
       }
-      await supabase.from('contas_pagar').delete().eq('compra_id', editingCompra.id);
-      await supabase.from('compras_itens').delete().eq('compra_id', editingCompra.id);
-      await supabase.from('compras').delete().eq('id', editingCompra.id);
-    }
 
-    // Determinar status usando valores aceitos pela constraint do banco
-    // 'finalizada' = pago, 'rascunho' = pendente
-    const formasImediatas = formasPagamento.filter(f => f.pagamento_imediato).map(f => f.nome);
-    const pgtoImediato = pagamentos.filter(p => formasImediatas.includes(p.forma_pagamento));
-    const totalImediato = pgtoImediato.reduce((s, p) => s + (p.valor || 0), 0);
-    let statusCompra = 'rascunho'; // pendente
-    if (pagamentos.length > 0 && totalImediato >= cartTotal) statusCompra = 'finalizada'; // pago
-
-    const { data: compra, error } = await supabase.from('compras').insert({
-      fornecedor_id: form.fornecedor_id, data: form.data, numero_nota: form.numero_nota,
-      numero_pedido: form.numero_pedido, total: cartTotal, observacoes: form.observacoes, status: statusCompra
-    }).select().single();
-
-    if (error) return addToast('Erro: ' + error.message, 'error');
-
-    const itens = cart.map(i => ({ compra_id: compra.id, produto_id: i.produto_id, quantidade: i.quantidade, valor_unitario: i.valor_unitario }));
-    await supabase.from('compras_itens').insert(itens);
-
-    // Update stock — somar quantidade comprada ao estoque atual
-    for (const item of cart) {
-      const { data: prod } = await supabase.from('produtos').select('quantidade_estoque').eq('id', item.produto_id).single();
-      if (prod) {
-        const novaQtd = (prod.quantidade_estoque || 0) + item.quantidade;
-        await supabase.from('produtos').update({ quantidade_estoque: novaQtd }).eq('id', item.produto_id);
+      // Create contas_pagar para cada pagamento
+      const parcelasGeradas = [];
+      for (const pag of pagamentos) {
+        const parcelas = parseInt(pag.parcelas) || 1;
+        const valorParcela = Math.round(pag.valor / parcelas);
+        const baseVencimento = new Date((pag.primeiro_vencimento || form.data) + 'T12:00:00');
+        for (let i = 0; i < parcelas; i++) {
+          const vencimento = new Date(baseVencimento); 
+          vencimento.setMonth(vencimento.getMonth() + i);
+          const dataVenc = vencimento.toISOString().split('T')[0];
+          const valFinal = i === parcelas - 1 ? pag.valor - (valorParcela * (parcelas - 1)) : valorParcela;
+          parcelasGeradas.push({
+            compra_id: compra.id, fornecedor_id: form.fornecedor_id,
+            descricao: `Compra #${form.numero_nota || compra.id.substring(0, 8)} - ${pag.forma_pagamento} ${parcelas > 1 ? `(${i + 1}/${parcelas})` : ''}`,
+            categoria: 'mercadoria', valor: valFinal, data_vencimento: dataVenc, 
+            forma_pagamento: pag.forma_pagamento,
+            status: formasImediatas.includes(pag.forma_pagamento) ? 'pago' : 'pendente'
+          });
+        }
       }
-    }
-
-    // Create contas_pagar para cada pagamento
-    const parcelasGeradas = [];
-    for (const pag of pagamentos) {
-      const parcelas = parseInt(pag.parcelas) || 1;
-      const valorParcela = Math.round(pag.valor / parcelas);
-      const baseVencimento = new Date((pag.primeiro_vencimento || form.data) + 'T12:00:00');
-      for (let i = 0; i < parcelas; i++) {
-        const vencimento = new Date(baseVencimento); 
-        vencimento.setMonth(vencimento.getMonth() + i);
-        const dataVenc = vencimento.toISOString().split('T')[0];
-        const valFinal = i === parcelas - 1 ? pag.valor - (valorParcela * (parcelas - 1)) : valorParcela;
-        parcelasGeradas.push({
-          compra_id: compra.id, fornecedor_id: form.fornecedor_id,
-          descricao: `Compra #${form.numero_nota || compra.id.substring(0, 8)} - ${pag.forma_pagamento} ${parcelas > 1 ? `(${i + 1}/${parcelas})` : ''}`,
-          categoria: 'mercadoria', valor: valFinal, data_vencimento: dataVenc, 
-          forma_pagamento: pag.forma_pagamento,
-          status: formasImediatas.includes(pag.forma_pagamento) ? 'pago' : 'pendente'
-        });
+      if (parcelasGeradas.length > 0) {
+        const { error: cpErr } = await supabase.from('contas_pagar').insert(parcelasGeradas);
+        if (cpErr) addToast('Aviso: erro ao gerar contas a pagar: ' + cpErr.message, 'error');
       }
+
+      // Recalcular status financeiro do fornecedor via RPC
+      await supabase.rpc('recalcular_status_fornecedor', { p_fornecedor_id: form.fornecedor_id }).catch(() => {});
+
+      addToast(editingCompra ? 'Compra atualizada com sucesso!' : 'Compra registrada com sucesso!');
+      setEditingCompra(null);
+      setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); setFornSearch(''); setShowFornDropdown(false); setFornSearchResults([]); load();
+    } catch (err) {
+      addToast('Erro inesperado: ' + (err.message || err), 'error');
     }
-    if (parcelasGeradas.length > 0) await supabase.from('contas_pagar').insert(parcelasGeradas);
-
-    // Recalcular status financeiro do fornecedor via RPC
-    await supabase.rpc('recalcular_status_fornecedor', { p_fornecedor_id: form.fornecedor_id }).catch(() => {});
-
-    addToast('Compra registrada com sucesso!');
-    setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); setFornSearch(''); setShowFornDropdown(false); setFornSearchResults([]); load();
   }
 
   async function deleteCompra(compra) {
@@ -310,6 +320,14 @@ export default function Compras() {
       valor_unitario: i.valor_unitario
     }));
     setCart(itens.length > 0 ? itens : [{ produto_id:'', quantidade:1, valor_unitario:0 }]);
+    // Popular nomes dos produtos nos campos de busca
+    const searches = {};
+    (c.compras_itens || []).forEach((item, idx) => {
+      const prodNome = item.produtos?.nome || '';
+      searches[idx] = prodNome;
+    });
+    setProdSearches(searches);
+    setProdDropdowns({});
     setPagamentos([]);
     setShowModal(true);
   }
