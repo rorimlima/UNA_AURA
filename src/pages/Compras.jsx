@@ -25,6 +25,7 @@ export default function Compras() {
   const [prodSearches, setProdSearches] = useState({}); // per-row product search
   const [prodDropdowns, setProdDropdowns] = useState({}); // per-row dropdown visibility
   const searchTimers = useRef({});
+  const savingRef = useRef(false);
 
   // Smart supplier search
   const [fornSearch, setFornSearch] = useState('');
@@ -159,12 +160,15 @@ export default function Compras() {
   const pagamentosTotal = pagamentos.reduce((s, p) => s + (p.valor || 0), 0);
 
   function openNew() {
+    setEditingCompra(null);
     setForm({ fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
     setCart([]);
     setPagamentos([]);
     setFornSearch('');
     setShowFornDropdown(false);
     setFornSearchResults([]);
+    setProdSearches({});
+    setProdDropdowns({});
     setShowModal(true);
   }
 
@@ -196,10 +200,13 @@ export default function Compras() {
 
   async function handleSave(e) {
     e.preventDefault();
-    if (!form.fornecedor_id) return addToast('Selecione o fornecedor', 'error');
-    if (cart.length === 0) return addToast('Adicione itens ao carrinho', 'error');
-    if (cart.some(i => !i.produto_id)) return addToast('Selecione todos os produtos', 'error');
-    if (pagamentos.length > 0 && pagamentosTotal !== cartTotal) return addToast('A soma dos pagamentos não bate com o total da compra', 'error');
+    // Trava síncrona para evitar duplo clique
+    if (savingRef.current) return;
+    savingRef.current = true;
+    if (!form.fornecedor_id) { savingRef.current = false; return addToast('Selecione o fornecedor', 'error'); }
+    if (cart.length === 0) { savingRef.current = false; return addToast('Adicione itens ao carrinho', 'error'); }
+    if (cart.some(i => !i.produto_id)) { savingRef.current = false; return addToast('Selecione todos os produtos', 'error'); }
+    if (pagamentos.length > 0 && pagamentosTotal !== cartTotal) { savingRef.current = false; return addToast('A soma dos pagamentos não bate com o total da compra', 'error'); }
     setSaving(true);
 
     try {
@@ -290,6 +297,7 @@ export default function Compras() {
     } catch (err) {
       addToast('Erro inesperado: ' + (err.message || err), 'error');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
