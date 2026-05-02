@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
 import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
-import { Plus, Search, ShoppingCart, X, Trash2, DollarSign, TrendingDown, Edit2 } from 'lucide-react';
+import { Plus, Search, ShoppingCart, X, Trash2, DollarSign, TrendingDown, Edit2, Eye, FileText, Package, CreditCard, Calendar, Hash } from 'lucide-react';
 import { formatMoney, toCents, toReal } from '../lib/money';
 
 export default function Compras() {
@@ -14,6 +14,10 @@ export default function Compras() {
   const [loading, setLoading] = useState(true);
   useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   const [showModal, setShowModal] = useState(false);
+  const [showDetalhes, setShowDetalhes] = useState(false);
+  const [detalheCompra, setDetalheCompra] = useState(null);
+  const [detalheContas, setDetalheContas] = useState([]);
+  const [loadingDetalhes, setLoadingDetalhes] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingCompra, _setEditingCompra] = useState(null);
   const editingRef = useRef(null);
@@ -395,6 +399,24 @@ export default function Compras() {
     setShowModal(true);
   }
 
+  async function viewDetalhes(compra) {
+    setLoadingDetalhes(true);
+    setDetalheCompra(compra);
+    setShowDetalhes(true);
+    try {
+      const { data: contas } = await supabase
+        .from('contas_pagar')
+        .select('*')
+        .eq('compra_id', compra.id)
+        .order('data_vencimento');
+      setDetalheContas(contas || []);
+    } catch (e) {
+      setDetalheContas([]);
+    } finally {
+      setLoadingDetalhes(false);
+    }
+  }
+
   const fmt = formatMoney;
 
   const filtered = compras.filter(c => {
@@ -455,6 +477,7 @@ export default function Compras() {
                   <td><span className={`badge ${c.status === 'finalizada' ? 'badge-success' : c.status === 'cancelada' ? 'badge-danger' : 'badge-warning'}`}>{c.status === 'finalizada' ? 'PAGO' : c.status === 'rascunho' ? 'PENDENTE' : c.status?.toUpperCase()}</span></td>
                   <td style={{ textAlign: 'center' }}>
                     <div style={{ display: 'flex', gap: 'var(--space-1)', justifyContent: 'center' }}>
+                      <button className="btn btn-ghost btn-icon btn-sm" title="Ver detalhes" onClick={() => viewDetalhes(c)} style={{ color: 'var(--color-info, #60a5fa)' }}><Eye size={14} /></button>
                       <button className="btn btn-ghost btn-icon btn-sm" title="Editar compra" onClick={() => editCompra(c)}><Edit2 size={14} /></button>
                       <button className="btn btn-ghost btn-icon btn-sm" title="Excluir compra" onClick={() => deleteCompra(c)} style={{ color: 'var(--color-danger)' }}><Trash2 size={14} /></button>
                     </div>
@@ -672,6 +695,167 @@ export default function Compras() {
                 <button type="submit" className="btn btn-primary">Salvar Produto</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Detalhes da Compra (somente leitura) ── */}
+      {showDetalhes && detalheCompra && (
+        <div className="modal-backdrop" onClick={() => setShowDetalhes(false)}>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxWidth: 900 }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-md)', background: 'rgba(201,169,110,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FileText size={18} style={{ color: 'var(--color-gold)' }} />
+                </div>
+                <div>
+                  <h3 className="modal-title" style={{ margin: 0 }}>Detalhes da Compra #{detalheCompra.codigo || '—'}</h3>
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>Visualização somente leitura</span>
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-icon" onClick={() => setShowDetalhes(false)}><X size={20} /></button>
+            </div>
+            <div className="modal-body" style={{ padding: 'var(--space-5)' }}>
+              {loadingDetalhes ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-8)' }}><div className="spinner spinner-lg" /></div>
+              ) : (
+                <>
+                  {/* Info geral */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
+                    <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, color: 'var(--color-text-muted)', fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        <Calendar size={12} /> Data
+                      </div>
+                      <div style={{ fontWeight: 600, fontSize: 'var(--text-base)' }}>{new Date(detalheCompra.data).toLocaleDateString('pt-BR')}</div>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, color: 'var(--color-text-muted)', fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        <ShoppingCart size={12} /> Fornecedor
+                      </div>
+                      <div style={{ fontWeight: 600, fontSize: 'var(--text-base)', color: 'var(--color-text-primary)' }}>{detalheCompra.fornecedores?.nome || '—'}</div>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, color: 'var(--color-text-muted)', fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        <Hash size={12} /> Nota / Pedido
+                      </div>
+                      <div style={{ fontWeight: 600, fontSize: 'var(--text-base)' }}>
+                        {detalheCompra.numero_nota || '—'}
+                        {detalheCompra.numero_pedido ? <span style={{ color: 'var(--color-text-muted)', marginLeft: 8, fontSize: 'var(--text-sm)' }}>Ped: {detalheCompra.numero_pedido}</span> : null}
+                      </div>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, color: 'var(--color-text-muted)', fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        <DollarSign size={12} /> Status
+                      </div>
+                      <span className={`badge ${detalheCompra.status === 'finalizada' ? 'badge-success' : detalheCompra.status === 'cancelada' ? 'badge-danger' : 'badge-warning'}`}>
+                        {detalheCompra.status === 'finalizada' ? 'PAGO' : detalheCompra.status === 'rascunho' ? 'PENDENTE' : detalheCompra.status?.toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Itens */}
+                  <div style={{ marginBottom: 'var(--space-6)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-3)' }}>
+                      <Package size={16} style={{ color: 'var(--color-gold)' }} />
+                      <h4 style={{ fontFamily: 'var(--font-display)', margin: 0 }}>Itens da Compra</h4>
+                      <span className="badge badge-gold" style={{ fontSize: 10 }}>{detalheCompra.compras_itens?.length || 0}</span>
+                    </div>
+                    {(detalheCompra.compras_itens || []).length === 0 ? (
+                      <p className="text-muted" style={{ fontSize: 'var(--text-sm)' }}>Nenhum item registrado.</p>
+                    ) : (
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: 40 }}>#</th>
+                            <th>Produto</th>
+                            <th style={{ textAlign: 'right' }}>Qtd</th>
+                            <th style={{ textAlign: 'right' }}>Valor Unit.</th>
+                            <th style={{ textAlign: 'right' }}>Subtotal</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(detalheCompra.compras_itens || []).map((item, idx) => (
+                            <tr key={item.id || idx}>
+                              <td style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-xs)' }}>{idx + 1}</td>
+                              <td style={{ fontWeight: 500 }}>{item.produtos?.nome || '—'}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>{item.quantidade}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'monospace', color: 'var(--color-text-muted)' }}>{fmt(item.valor_unitario)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color: 'var(--color-gold)' }}>{fmt(item.quantidade * item.valor_unitario)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ borderTop: '2px solid var(--color-gold)' }}>
+                            <td colSpan={4} style={{ textAlign: 'right', fontWeight: 700, fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total:</td>
+                            <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'monospace', fontSize: 'var(--text-base)', color: 'var(--color-gold)' }}>{fmt(detalheCompra.total)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    )}
+                  </div>
+
+                  {/* Contas a Pagar */}
+                  <div style={{ marginBottom: 'var(--space-4)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-3)' }}>
+                      <CreditCard size={16} style={{ color: 'var(--color-gold)' }} />
+                      <h4 style={{ fontFamily: 'var(--font-display)', margin: 0 }}>Contas a Pagar</h4>
+                      <span className="badge badge-gold" style={{ fontSize: 10 }}>{detalheContas.length}</span>
+                    </div>
+                    {detalheContas.length === 0 ? (
+                      <p className="text-muted" style={{ fontSize: 'var(--text-sm)' }}>Nenhuma conta a pagar vinculada.</p>
+                    ) : (
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Descrição</th>
+                            <th>Forma</th>
+                            <th style={{ textAlign: 'center' }}>Vencimento</th>
+                            <th style={{ textAlign: 'center' }}>Pagamento</th>
+                            <th style={{ textAlign: 'right' }}>Valor</th>
+                            <th style={{ textAlign: 'center' }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detalheContas.map(cp => (
+                            <tr key={cp.id}>
+                              <td style={{ fontSize: 'var(--text-sm)' }}>{cp.descricao || '—'}</td>
+                              <td style={{ fontSize: 'var(--text-sm)' }}>{cp.forma_pagamento || '—'}</td>
+                              <td style={{ textAlign: 'center', fontFamily: 'monospace', fontSize: 'var(--text-sm)' }}>{cp.data_vencimento ? new Date(cp.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}</td>
+                              <td style={{ textAlign: 'center', fontFamily: 'monospace', fontSize: 'var(--text-sm)' }}>{cp.data_pagamento ? new Date(cp.data_pagamento + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: 600 }}>{fmt(cp.valor)}</td>
+                              <td style={{ textAlign: 'center' }}>
+                                <span className={`badge ${cp.status === 'pago' ? 'badge-success' : cp.status === 'vencido' ? 'badge-danger' : cp.status === 'cancelado' ? 'badge-danger' : 'badge-warning'}`} style={{ fontSize: 10 }}>
+                                  {cp.status?.toUpperCase() || 'PENDENTE'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ borderTop: '2px solid var(--color-gold)' }}>
+                            <td colSpan={4} style={{ textAlign: 'right', fontWeight: 700, fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Total:</td>
+                            <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'monospace', fontSize: 'var(--text-base)', color: 'var(--color-gold)' }}>{fmt(detalheContas.reduce((s, cp) => s + (cp.valor || 0), 0))}</td>
+                            <td></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    )}
+                  </div>
+
+                  {/* Observações */}
+                  {detalheCompra.observacoes && (
+                    <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Observações</div>
+                      <div style={{ fontSize: 'var(--text-sm)', lineHeight: 1.5 }}>{detalheCompra.observacoes}</div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowDetalhes(false)}>Fechar</button>
+              <button className="btn btn-primary" onClick={() => { setShowDetalhes(false); editCompra(detalheCompra); }}>Editar Compra</button>
+            </div>
           </div>
         </div>
       )}
