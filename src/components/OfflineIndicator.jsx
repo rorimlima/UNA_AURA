@@ -1,18 +1,19 @@
 /**
  * OfflineIndicator.jsx — Indicador visual de status online/offline
- * Exibe banner com animações e informações de sincronização.
+ * ══════════════════════════════════════════════════════════════════════════════
+ * Agora usa o SyncProvider ao invés do OfflineContext legado.
+ * Mantém a mesma API visual para o Layout.
+ * ══════════════════════════════════════════════════════════════════════════════
  */
 
 import { useState } from 'react';
-import { useOffline } from '../contexts/OfflineContext';
-import { Wifi, WifiOff, RefreshCw, Cloud, CloudOff, CheckCircle, AlertTriangle } from 'lucide-react';
+import { useSync } from '../contexts/SyncProvider';
+import { RefreshCw, Cloud, CloudOff, AlertTriangle } from 'lucide-react';
 
 const styles = {
   container: {
     position: 'relative',
   },
-
-  // Banner offline — aparece no topo
   offlineBanner: {
     display: 'flex',
     alignItems: 'center',
@@ -27,8 +28,6 @@ const styles = {
     animation: 'offlineSlideIn 0.3s ease-out',
     boxShadow: '0 2px 8px rgba(220, 38, 38, 0.3)',
   },
-
-  // Banner sincronizando
   syncingBanner: {
     display: 'flex',
     alignItems: 'center',
@@ -41,8 +40,6 @@ const styles = {
     fontWeight: 500,
     animation: 'offlineSlideIn 0.3s ease-out',
   },
-
-  // Indicador online sutil
   onlineIndicator: {
     display: 'flex',
     alignItems: 'center',
@@ -55,12 +52,9 @@ const styles = {
     transition: 'background 0.2s',
     userSelect: 'none',
   },
-
-  // Pulse animation for syncing icon
   spinning: {
     animation: 'offlineSpin 1s linear infinite',
   },
-
   pendingBadge: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -73,7 +67,6 @@ const styles = {
     fontSize: '11px',
     fontWeight: 700,
   },
-
   syncBtn: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -88,7 +81,6 @@ const styles = {
     transition: 'background 0.2s',
     fontWeight: 500,
   },
-
   lastSyncText: {
     fontSize: '11px',
     opacity: 0.7,
@@ -128,15 +120,15 @@ const injectKeyframes = (() => {
 })();
 
 export default function OfflineIndicator() {
-  const { isOnline, isSyncing, pendingOps, lastSync, syncError, syncNow } = useOffline();
+  // ★ Usa o novo SyncProvider ao invés do OfflineContext legado
+  const { isOnline, isSyncing, pendingOps, lastSyncAt, syncError, syncNow } = useSync();
   const [showTooltip, setShowTooltip] = useState(false);
 
   injectKeyframes();
 
-  // Formata horário da última sincronização
   function formatLastSync() {
-    if (!lastSync) return 'Nunca';
-    const d = new Date(lastSync);
+    if (!lastSyncAt) return 'Nunca';
+    const d = new Date(lastSyncAt);
     const now = new Date();
     const diff = Math.floor((now - d) / 1000);
 

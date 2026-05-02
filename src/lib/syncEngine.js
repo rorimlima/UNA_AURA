@@ -1,0 +1,601 @@
+/**
+ * syncEngine.js — Motor de Sincronização Offline-First
+ * ══════════════════════════════════════════════════════════════════════════════
+ * SINGLETON que orquestra:
+ *   1. Delta Fetch — busca apenas registros alterados desde `last_sync_at`
+ *   2. Mutation Queue — enfileira escritas offline, aplica exponential backoff
+ *   3. Optimistic UI — atualiza o cache local ANTES de ir ao servidor
+ *   4. Realtime Integration — recebe updates via `realtimeManager.js`
+ *   5. Conflict Resolution — Last-Write-Wins (campo `updated_at`)
+ *
+ * ★ ISOLAMENTO: Este módulo NÃO importa React. Nenhum hook, useState ou
+ *   useEffect mora aqui. A comunicação com a UI é via EventTarget (pub/sub).
+ * ══════════════════════════════════════════════════════════════════════════════
+ */
+
+import { supabase } from './supabase';
+import db from './offlineDb';
+
+// ─── Configuração das tabelas sincronizáveis ────────────────────────────────
+
+/**
+ * @typedef {Object} SyncTableConfig
+ * @property {string} name - Nome da tabela no Supabase
+ * @property {string} [select] - Colunas para SELECT (default: '*')
+ * @property {Object} [baseFilter] - Filtros base que sempre se aplicam
+ * @property {boolean} [writable] - Se aceita mutações do cliente (default: true)
+ * @property {number} [deltaPageSize] - Registros por página no delta (default: 500)
+ * @property {boolean} [realtime] - Se escuta Realtime (default: true)
+ */
+const TABLE_CONFIGS = {
+  vendas: {
+    name: 'vendas',
+    select: '*',
+    writable: true,
+    realtime: true,
+    deltaPageSize: 500,
+  },
+  clientes: {
+    name: 'clientes',
+    select: '*',
+    writable: true,
+    realtime: true,
+  },
+  produtos: {
+    name: 'produtos',
+    select: '*',
+    writable: true,
+    realtime: true,
+  },
+  veiculos_bloqueados: {
+    name: 'veiculos_bloqueados',
+    select: '*',
+    writable: true,
+    realtime: true,
+  },
+  vendedores: {
+    name: 'vendedores',
+    select: '*',
+    writable: false,
+    realtime: true,
+  },
+  fornecedores: {
+    name: 'fornecedores',
+    select: '*',
+    writable: false,
+    realtime: true,
+  },
+  contas_receber: {
+    name: 'contas_receber',
+    select: '*',
+    writable: true,
+    realtime: true,
+  },
+  contas_pagar: {
+    name: 'contas_pagar',
+    select: '*',
+    writable: true,
+    realtime: true,
+  },
+  empresa: {
+    name: 'empresa',
+    select: '*',
+    writable: false,
+    realtime: false,
+    deltaPageSize: 10,
+  },
+  ocorrencias_agente: {
+    name: 'ocorrencias_agente',
+    select: '*',
+    writable: true,
+    realtime: true,
+  },
+  colaboradores: {
+    name: 'colaboradores',
+    select: '*',
+    writable: false,
+    realtime: true,
+  },
+};
+
+// ─── Event Bus (desacoplado de React) ───────────────────────────────────────
+
+const _bus = new EventTarget();
+
+/** @param {'sync_start'|'sync_end'|'table_updated'|'queue_change'|'error'|'online'|'offline'} type */
+function _emit(type, detail = {}) {
+  _bus.dispatchEvent(new CustomEvent(type, { detail }));
+}
+
+/** Subscreve a eventos do engine. Retorna unsubscribe function. */
+export function subscribe(type, handler) {
+  const wrapped = (e) => handler(e.detail);
+  _bus.addEventListener(type, wrapped);
+  return () => _bus.removeEventListener(type, wrapped);
+}
+
+// ─── State ──────────────────────────────────────────────────────────────────
+
+let _syncing = false;
+let _syncStartedAt = null;
+let _initialized = false;
+const MAX_MUTATION_RETRIES = 8;
+const QUEUE_PROCESS_INTERVAL = 15_000; // 15s
+let _queueIntervalId = null;
+
+// ─── 1. DELTA FETCH — Busca inteligente ─────────────────────────────────────
+
+/**
+ * Faz o Delta Sync de uma tabela:
+ *   • Na PRIMEIRA vez (sem cursor): full load → salva tudo no cache
+ *   • Nas PRÓXIMAS: busca apenas WHERE updated_at > cursor
+ *   • Registros com is_deleted = true são REMOVIDOS do cache local
+ *
+ * @param {string} tableName
+ * @returns {Promise<{ count: number, isInitial: boolean }>}
+ */
+export async function deltaSync(tableName) {
+  const config = TABLE_CONFIGS[tableName];
+  if (!config) {
+    console.warn(`[SyncEngine] Tabela "${tableName}" não configurada.`);
+    return { count: 0, isInitial: false };
+  }
+
+  const cursor = await db.getSyncCursor(tableName);
+  const isInitial = !cursor;
+  const pageSize = config.deltaPageSize || 500;
+
+  try {
+    let query = supabase
+      .from(config.name)
+      .select(config.select || '*')
+      .order('updated_at', { ascending: true })
+      .limit(pageSize);
+
+    // Aplica filtros base da config
+    if (config.baseFilter) {
+      for (const [col, val] of Object.entries(config.baseFilter)) {
+        query = query.eq(col, val);
+      }
+    }
+
+    // Delta: apenas registros mais novos que o cursor
+    if (cursor) {
+      query = query.gt('updated_at', cursor);
+    }
+
+    // Timeout de 20s para evitar travamento
+    const result = await Promise.race([
+      query,
+      new Promise((_, rej) =>
+        setTimeout(() => rej(new Error(`Timeout: deltaSync ${tableName}`)), 20_000)
+      ),
+    ]);
+
+    const { data, error } = result;
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      console.log(`[SyncEngine] ✓ ${tableName}: sem alterações (delta)`);
+      return { count: 0, isInitial };
+    }
+
+    if (isInitial) {
+      // Primeira vez: limpa e carrega tudo
+      await db.clear(tableName);
+      const nonDeleted = data.filter(r => !r.is_deleted);
+      await db.putAll(tableName, nonDeleted);
+    } else {
+      // Delta: merge inteligente com LWW
+      await db.mergeRecords(tableName, data);
+    }
+
+    // Atualiza o cursor para o updated_at mais recente recebido
+    const latestTs = data.reduce((max, r) => {
+      return r.updated_at > max ? r.updated_at : max;
+    }, cursor || '');
+    if (latestTs) {
+      await db.setSyncCursor(tableName, latestTs);
+    }
+
+    console.log(`[SyncEngine] ✓ ${tableName}: ${data.length} registros (${isInitial ? 'initial' : 'delta'})`);
+    _emit('table_updated', { table: tableName, count: data.length, isInitial });
+
+    return { count: data.length, isInitial };
+  } catch (err) {
+    console.error(`[SyncEngine] ✗ deltaSync(${tableName}):`, err.message);
+    _emit('error', { table: tableName, error: err.message });
+    return { count: 0, isInitial, error: err.message };
+  }
+}
+
+/**
+ * Sincroniza TODAS as tabelas configuradas em paralelo.
+ */
+export async function syncAll() {
+  if (_syncing) {
+    // Auto-release após 45s para evitar deadlock
+    if (_syncStartedAt && (Date.now() - _syncStartedAt > 45_000)) {
+      console.warn('[SyncEngine] Sync travado detectado, resetando...');
+      _syncing = false;
+    } else {
+      console.log('[SyncEngine] Sync já em andamento, ignorando.');
+      return;
+    }
+  }
+
+  _syncing = true;
+  _syncStartedAt = Date.now();
+  _emit('sync_start');
+
+  const tables = Object.keys(TABLE_CONFIGS);
+  let success = 0;
+  let failed = 0;
+
+  // Paraleliza para velocidade em mobile
+  const results = await Promise.allSettled(
+    tables.map(t => deltaSync(t))
+  );
+
+  for (const r of results) {
+    if (r.status === 'fulfilled' && !r.value.error) success++;
+    else failed++;
+  }
+
+  // Processa fila de mutações pendentes
+  await processQueue();
+
+  _syncing = false;
+  _syncStartedAt = null;
+  _emit('sync_end', { success, failed, total: tables.length });
+
+  console.log(`[SyncEngine] Sync completo: ${success}/${tables.length} ok`);
+  return { success, failed };
+}
+
+// ─── 2. MUTATION QUEUE — Escritas Optimistic + Fila ─────────────────────────
+
+/**
+ * Executa uma mutação de forma Optimistic:
+ *   1. Aplica no cache local IMEDIATAMENTE
+ *   2. Tenta enviar ao Supabase
+ *   3. Se falhar, enfileira com exponential backoff
+ *
+ * @param {string} table - Nome da tabela
+ * @param {'INSERT'|'UPDATE'|'DELETE'} operation
+ * @param {object} payload - Dados da operação
+ * @param {string} [recordId] - ID do registro (para UPDATE/DELETE)
+ * @returns {Promise<{ success: boolean, data?: any, queued?: boolean }>}
+ */
+export async function mutate(table, operation, payload, recordId) {
+  const config = TABLE_CONFIGS[table];
+  if (config && config.writable === false) {
+    console.error(`[SyncEngine] Tabela "${table}" é read-only.`);
+    return { success: false, error: 'Tabela somente leitura' };
+  }
+
+  // ── 1. Optimistic update no cache local ──
+
+  const now = new Date().toISOString();
+
+  if (operation === 'INSERT') {
+    if (!payload.id) {
+      payload.id = crypto.randomUUID
+        ? crypto.randomUUID()
+        : `local_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+    }
+    payload.created_at = payload.created_at || now;
+    payload.updated_at = now;
+    payload.is_deleted = false;
+    await db.put(table, payload);
+  } else if (operation === 'UPDATE') {
+    if (!recordId) return { success: false, error: 'ID necessário para UPDATE' };
+    payload.updated_at = now;
+    // Merge com dados existentes no cache
+    const existing = await db.getById(table, recordId);
+    const merged = { ...existing, ...payload, id: recordId };
+    await db.put(table, merged);
+  } else if (operation === 'DELETE') {
+    if (!recordId) return { success: false, error: 'ID necessário para DELETE' };
+    // Soft delete local: marca como is_deleted (para convergir com servidor)
+    const existing = await db.getById(table, recordId);
+    if (existing) {
+      existing.is_deleted = true;
+      existing.updated_at = now;
+      await db.put(table, existing);
+    }
+    // Também remove fisicamente do cache (a UI não deve ver registros deletados)
+    await db.remove(table, recordId);
+  }
+
+  // Notifica a UI que a tabela mudou
+  _emit('table_updated', { table, source: 'local_mutation', operation, recordId: recordId || payload.id });
+
+  // ── 2. Tenta enviar ao servidor ──
+
+  if (!navigator.onLine) {
+    await db.enqueueMutation({ table, operation, payload, recordId: recordId || payload.id });
+    _emit('queue_change', { table, pending: await db.getMutationCount() });
+    return { success: false, queued: true };
+  }
+
+  try {
+    const result = await _executeRemote(table, operation, payload, recordId || payload.id);
+
+    // Se o servidor retornou dados, atualiza o cache com a versão autoritativa
+    if (result && result.length > 0 && operation !== 'DELETE') {
+      await db.put(table, result[0]);
+      // Atualiza o cursor para capturar esse updated_at
+      if (result[0].updated_at) {
+        const currentCursor = await db.getSyncCursor(table);
+        if (!currentCursor || result[0].updated_at > currentCursor) {
+          await db.setSyncCursor(table, result[0].updated_at);
+        }
+      }
+    }
+
+    return { success: true, data: result };
+  } catch (err) {
+    console.warn(`[SyncEngine] Falha remota, enfileirando:`, err.message);
+    await db.enqueueMutation({ table, operation, payload, recordId: recordId || payload.id });
+    _emit('queue_change', { table, pending: await db.getMutationCount() });
+    return { success: false, queued: true, error: err.message };
+  }
+}
+
+/**
+ * Executa a operação diretamente no Supabase.
+ * Para DELETE, faz SOFT DELETE (UPDATE is_deleted = true).
+ */
+async function _executeRemote(table, operation, payload, recordId) {
+  switch (operation) {
+    case 'INSERT': {
+      // Remove campos locais temporários
+      const clean = { ...payload };
+      delete clean._localOnly;
+      const { data, error } = await supabase.from(table).insert(clean).select();
+      if (error) throw error;
+      return data;
+    }
+    case 'UPDATE': {
+      const clean = { ...payload };
+      delete clean._localOnly;
+      delete clean.id; // Não enviar ID no body do UPDATE
+      const { data, error } = await supabase.from(table).update(clean).eq('id', recordId).select();
+      if (error) throw error;
+      return data;
+    }
+    case 'DELETE': {
+      // ★ SOFT DELETE: marca is_deleted = true no servidor
+      const { data, error } = await supabase
+        .from(table)
+        .update({ is_deleted: true, updated_at: new Date().toISOString() })
+        .eq('id', recordId)
+        .select();
+      if (error) throw error;
+      return data;
+    }
+    default:
+      throw new Error(`Operação desconhecida: ${operation}`);
+  }
+}
+
+// ─── 3. QUEUE PROCESSOR — Exponential Backoff ───────────────────────────────
+
+/**
+ * Processa a fila de mutações pendentes.
+ * Respeita o `nextRetryAt` para exponential backoff.
+ */
+export async function processQueue() {
+  if (!navigator.onLine) return;
+
+  const ops = await db.getRetryableMutations();
+  if (ops.length === 0) return;
+
+  console.log(`[SyncEngine] Processando fila: ${ops.length} mutações`);
+  _emit('queue_change', { processing: true, count: ops.length });
+
+  let processed = 0;
+  let failed = 0;
+
+  for (const op of ops) {
+    // Discard se excedeu max retries
+    if (op.retries >= MAX_MUTATION_RETRIES) {
+      console.warn(`[SyncEngine] Descartando mutação após ${MAX_MUTATION_RETRIES} tentativas:`, op);
+      await db.dequeueMutation(op.key);
+      _emit('error', {
+        type: 'mutation_discarded',
+        table: op.table,
+        operation: op.operation,
+        error: op.lastError,
+      });
+      failed++;
+      continue;
+    }
+
+    try {
+      await _executeRemote(op.table, op.operation, op.payload, op.recordId);
+      await db.dequeueMutation(op.key);
+      processed++;
+    } catch (err) {
+      console.error(`[SyncEngine] Retry falhou (${op.retries + 1}/${MAX_MUTATION_RETRIES}):`, err.message);
+      await db.markMutationRetry(op.key, err);
+      failed++;
+    }
+  }
+
+  const remaining = await db.getMutationCount();
+  _emit('queue_change', { processing: false, processed, failed, remaining });
+  console.log(`[SyncEngine] Fila: ${processed} processados, ${failed} falharam, ${remaining} restantes`);
+}
+
+// ─── 4. NETWORK LISTENERS & AUTO-SYNC ───────────────────────────────────────
+
+let _autoSyncActive = false;
+
+function _onOnline() {
+  console.log('[SyncEngine] 🟢 Online — sincronizando...');
+  _emit('online');
+  // Delay para estabilizar conexão
+  setTimeout(() => {
+    processQueue();
+    syncAll();
+  }, 2000);
+}
+
+function _onOffline() {
+  console.log('[SyncEngine] 🔴 Offline');
+  _emit('offline');
+}
+
+/**
+ * Inicializa o Sync Engine:
+ *   • Registra listeners de rede
+ *   • Inicia timer da fila de mutações
+ *   • Faz sync inicial se online
+ */
+export function initialize() {
+  if (_initialized) return;
+  _initialized = true;
+
+  // Network listeners
+  window.addEventListener('online', _onOnline);
+  window.addEventListener('offline', _onOffline);
+  _autoSyncActive = true;
+
+  // Timer de processamento da fila (exponential backoff retry loop)
+  _queueIntervalId = setInterval(() => {
+    if (navigator.onLine) processQueue();
+  }, QUEUE_PROCESS_INTERVAL);
+
+  // Visibility change: re-sync ao voltar ao app
+  document.addEventListener('visibilitychange', _handleVisibility);
+
+  // Sync inicial com delay para não bloquear o render
+  if (navigator.onLine) {
+    setTimeout(() => syncAll(), 1500);
+  }
+
+  console.log('[SyncEngine] ✅ Inicializado');
+}
+
+function _handleVisibility() {
+  if (document.visibilityState !== 'visible') return;
+  if (!navigator.onLine || _syncing) return;
+
+  // Só re-sync se faz mais de 2 minutos
+  if (_syncStartedAt && (Date.now() - _syncStartedAt < 120_000)) return;
+
+  setTimeout(() => {
+    if (document.visibilityState === 'visible' && navigator.onLine) {
+      processQueue();
+      syncAll();
+    }
+  }, 1500);
+}
+
+/** Desliga o engine (cleanup) */
+export function destroy() {
+  window.removeEventListener('online', _onOnline);
+  window.removeEventListener('offline', _onOffline);
+  document.removeEventListener('visibilitychange', _handleVisibility);
+  if (_queueIntervalId) clearInterval(_queueIntervalId);
+  _initialized = false;
+  _autoSyncActive = false;
+  console.log('[SyncEngine] Destruído');
+}
+
+// ─── 5. APLICAR EVENTO REALTIME ─────────────────────────────────────────────
+
+/**
+ * Chamado pelo realtimeManager quando chega um evento debounced.
+ * Aplica LWW antes de atualizar o cache.
+ *
+ * @param {string} table
+ * @param {'INSERT'|'UPDATE'|'DELETE'} eventType
+ * @param {object} payload - new record from Realtime
+ */
+export async function applyRealtimeEvent(table, eventType, payload) {
+  if (!payload) return;
+
+  if (eventType === 'DELETE' || payload.is_deleted) {
+    await db.remove(table, payload.id);
+    _emit('table_updated', { table, source: 'realtime', operation: 'DELETE', recordId: payload.id });
+    return;
+  }
+
+  // Last-Write-Wins: verifica se o local é mais recente
+  const local = await db.getById(table, payload.id);
+  if (local && local.updated_at && payload.updated_at) {
+    if (new Date(local.updated_at) > new Date(payload.updated_at)) {
+      console.log(`[SyncEngine] LWW: local mais recente para ${table}/${payload.id}, ignorando realtime`);
+      return;
+    }
+  }
+
+  await db.put(table, payload);
+
+  // Atualiza cursor se necessário
+  if (payload.updated_at) {
+    const cursor = await db.getSyncCursor(table);
+    if (!cursor || payload.updated_at > cursor) {
+      await db.setSyncCursor(table, payload.updated_at);
+    }
+  }
+
+  _emit('table_updated', { table, source: 'realtime', operation: eventType, recordId: payload.id });
+}
+
+// ─── 6. UTILITÁRIOS PÚBLICOS ────────────────────────────────────────────────
+
+/** Retorna dados do cache local para uma tabela (exclui soft-deleted) */
+export async function getCached(tableName) {
+  const all = await db.getAll(tableName);
+  return all.filter(r => !r.is_deleted);
+}
+
+/** Retorna se está sincronizando */
+export function isSyncing() {
+  return _syncing;
+}
+
+/** Retorna a contagem de mutações pendentes */
+export async function getPendingCount() {
+  return db.getMutationCount();
+}
+
+/** Retorna configuração de uma tabela */
+export function getTableConfig(tableName) {
+  return TABLE_CONFIGS[tableName] || null;
+}
+
+/** Retorna nomes de todas as tabelas configuradas */
+export function getConfiguredTables() {
+  return Object.keys(TABLE_CONFIGS);
+}
+
+/** Força um full reload de uma tabela (limpa cursor) */
+export async function forceFullReload(tableName) {
+  await db.clearSyncCursor(tableName);
+  await db.clear(tableName);
+  return deltaSync(tableName);
+}
+
+// ─── Default Export ─────────────────────────────────────────────────────────
+
+export default {
+  initialize,
+  destroy,
+  syncAll,
+  deltaSync,
+  mutate,
+  processQueue,
+  applyRealtimeEvent,
+  getCached,
+  isSyncing,
+  getPendingCount,
+  getTableConfig,
+  getConfiguredTables,
+  forceFullReload,
+  subscribe,
+};
