@@ -52,34 +52,34 @@ export default function App() {
   useConnectionRecovery();
 
   return (
-    <SyncProvider>
     <AuthProvider>
-      <ToastProvider>
-        <Routes>
-          <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-          <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-            <Route index element={<Dashboard />} />
-            <Route path="estoque" element={<Estoque />} />
-            <Route path="compras" element={<Compras />} />
-            <Route path="vendas" element={<Vendas />} />
-            <Route path="clientes" element={<Clientes />} />
-            <Route path="fornecedores" element={<Fornecedores />} />
-            <Route path="vendedores" element={<Vendedores />} />
-            <Route path="financeiro" element={<Financeiro />} />
-            <Route path="resultados" element={<Resultados />} />
-            <Route path="inadimplencia" element={<Inadimplencia />} />
-            <Route path="fluxo-caixa" element={<FluxoCaixa />} />
-            <Route path="conciliacao" element={<Conciliacao />} />
-            <Route path="empresa" element={<Empresa />} />
-            <Route path="crm" element={<CRM />} />
-            <Route path="tutorial" element={<Tutorial />} />
-            <Route path="qa" element={<QA />} />
-          </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-        <SyncIndicator />
-      </ToastProvider>
+      <SyncProvider>
+        <ToastProvider>
+          <Routes>
+            <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+            <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+              <Route index element={<Dashboard />} />
+              <Route path="estoque" element={<Estoque />} />
+              <Route path="compras" element={<Compras />} />
+              <Route path="vendas" element={<Vendas />} />
+              <Route path="clientes" element={<Clientes />} />
+              <Route path="fornecedores" element={<Fornecedores />} />
+              <Route path="vendedores" element={<Vendedores />} />
+              <Route path="financeiro" element={<Financeiro />} />
+              <Route path="resultados" element={<Resultados />} />
+              <Route path="inadimplencia" element={<Inadimplencia />} />
+              <Route path="fluxo-caixa" element={<FluxoCaixa />} />
+              <Route path="conciliacao" element={<Conciliacao />} />
+              <Route path="empresa" element={<Empresa />} />
+              <Route path="crm" element={<CRM />} />
+              <Route path="tutorial" element={<Tutorial />} />
+              <Route path="qa" element={<QA />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+          <SyncIndicator />
+        </ToastProvider>
+      </SyncProvider>
     </AuthProvider>
-    </SyncProvider>
   );
 }

@@ -16,6 +16,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import syncEngine from '../lib/syncEngine';
 import realtimeManager from '../lib/realtimeManager';
+import { useAuth } from './AuthContext';
 
 const SyncContext = createContext({
   isOnline: true,
@@ -28,6 +29,7 @@ const SyncContext = createContext({
 });
 
 export function SyncProvider({ children }) {
+  const { user } = useAuth();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
   const [pendingOps, setPendingOps] = useState(0);
@@ -36,8 +38,25 @@ export function SyncProvider({ children }) {
 
   const initialized = useRef(false);
 
-  // ── Boot: Inicializa SyncEngine + Realtime UMA VEZ ──
+  // ── Boot: Inicializa SyncEngine + Realtime somente quando AUTENTICADO ──
   useEffect(() => {
+    // Não inicializa se não tem usuário autenticado
+    if (!user) {
+      // Se já estava inicializado e o user fez logout, limpa tudo
+      if (initialized.current) {
+        try {
+          syncEngine.destroy();
+          realtimeManager.destroy();
+        } catch (_) { /* cleanup seguro */ }
+        initialized.current = false;
+        setPendingOps(0);
+        setLastSyncAt(null);
+        setSyncError(null);
+        setIsSyncing(false);
+      }
+      return;
+    }
+
     if (initialized.current) return;
     initialized.current = true;
 
@@ -54,13 +73,8 @@ export function SyncProvider({ children }) {
 
     return () => {
       clearTimeout(timer);
-      try {
-        syncEngine.destroy();
-        realtimeManager.destroy();
-      } catch (_) { /* cleanup seguro */ }
-      initialized.current = false;
     };
-  }, []);
+  }, [user]);
 
   // ── Escuta eventos do SyncEngine ──
   useEffect(() => {

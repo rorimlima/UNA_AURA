@@ -31,6 +31,7 @@ export default function Clientes() {
     const { data, error } = await supabase
       .from('clientes')
       .select('*')
+      .or('is_deleted.is.null,is_deleted.eq.false')
       .order('created_at', { ascending: false });
     if (!error) setClientes(data || []);
     setLoading(false);
@@ -78,7 +79,7 @@ export default function Clientes() {
 
   async function handleDelete(id) {
     if (!confirm('Tem certeza que deseja excluir este cliente?')) return;
-    const { error } = await supabase.from('clientes').delete().eq('id', id);
+    const { error } = await supabase.from('clientes').update({ is_deleted: true, updated_at: new Date().toISOString() }).eq('id', id);
     if (error) return addToast('Erro ao excluir: ' + error.message, 'error');
     addToast('Cliente excluído.');
     loadClientes();

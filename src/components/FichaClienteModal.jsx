@@ -9,7 +9,7 @@ export default function FichaClienteModal({ cliente, onClose }) {
   const [loading, setLoading] = useState(true);
   const [vendas, setVendas] = useState([]);
   const [titulos, setTitulos] = useState([]);
-  const [contasBancarias, setContasBancarias] = useState([]);
+  const [contasFinanceiras, setContasFinanceiras] = useState([]);
   const [showBaixaModal, setShowBaixaModal] = useState(false);
   const [baixaData, setBaixaData] = useState(null);
 
@@ -22,12 +22,12 @@ export default function FichaClienteModal({ cliente, onClose }) {
     const [vendasRes, titulosRes, contasRes] = await Promise.all([
       supabase.from('vendas').select('*, vendas_itens(*)').eq('cliente_id', cliente.id).order('data', { ascending: false }),
       supabase.from('contas_receber').select('*').eq('cliente_id', cliente.id).order('data_vencimento', { ascending: true }),
-      supabase.from('contas_bancarias').select('*').order('nome')
+      supabase.from('contas_financeiras').select('*').order('nome')
     ]);
     
     setVendas(vendasRes.data || []);
     setTitulos(titulosRes.data || []);
-    setContasBancarias(contasRes.data || []);
+    setContasFinanceiras(contasRes.data || []);
     setLoading(false);
   }
 
@@ -35,7 +35,7 @@ export default function FichaClienteModal({ cliente, onClose }) {
     setBaixaData({
       id: titulo.id,
       valor: titulo.valor,
-      conta_bancaria_id: contasBancarias.length > 0 ? contasBancarias[0].id : '',
+      conta_financeira_id: contasFinanceiras.length > 0 ? contasFinanceiras[0].id : '',
       data_pagamento: new Date().toISOString().split('T')[0]
     });
     setShowBaixaModal(true);
@@ -43,16 +43,15 @@ export default function FichaClienteModal({ cliente, onClose }) {
 
   async function handleBaixa(e) {
     e.preventDefault();
-    if (!baixaData.conta_bancaria_id) return addToast('Selecione a conta bancária', 'error');
+    if (!baixaData.conta_financeira_id) return addToast('Selecione a conta financeira', 'error');
 
     const titulo = titulos.find(t => t.id === baixaData.id);
     if (!titulo) return;
 
     const { error } = await supabase.from('contas_receber').update({
       status: 'recebido',
-      data_pagamento: baixaData.data_pagamento,
-      conta_bancaria_id: baixaData.conta_bancaria_id,
-      valor_pago: baixaData.valor
+      data_recebimento: baixaData.data_pagamento,
+      conta_financeira_id: baixaData.conta_financeira_id,
     }).eq('id', baixaData.id);
 
     if (error) {
@@ -62,14 +61,12 @@ export default function FichaClienteModal({ cliente, onClose }) {
 
     // Gerar movimentação financeira
     await supabase.from('movimentacoes_financeiras').insert({
-      conta_bancaria_id: baixaData.conta_bancaria_id,
-      tipo: 'receita',
+      conta_financeira_id: baixaData.conta_financeira_id,
+      tipo: 'entrada',
       valor: baixaData.valor,
       data: baixaData.data_pagamento,
-      descricao: `Recebimento: ${titulo.descricao || 'Título ' + titulo.id}`,
-      categoria: 'Vendas',
-      referencia_id: titulo.id,
-      referencia_tipo: 'conta_receber'
+      descricao: `Recebimento: ${titulo.descricao || 'Título ' + titulo.id.substring(0,8)}`,
+      conta_receber_id: titulo.id,
     });
 
     addToast('Pagamento recebido com sucesso!');
@@ -179,8 +176,8 @@ export default function FichaClienteModal({ cliente, onClose }) {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
                       {titulos.filter(t => t.status === 'recebido').slice(0, 5).map(t => (
                         <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-2)', background: 'var(--color-surface)', borderRadius: 'var(--radius-md)', fontSize: 'var(--text-sm)' }}>
-                          <span style={{ color: 'var(--color-text-secondary)' }}>{new Date(t.data_pagamento + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
-                          <span style={{ fontWeight: 500, color: 'var(--color-success)' }}>{formatMoney(t.valor_pago || t.valor)}</span>
+                          <span style={{ color: 'var(--color-text-secondary)' }}>{new Date((t.data_recebimento || t.data_vencimento) + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+                          <span style={{ fontWeight: 500, color: 'var(--color-success)' }}>{formatMoney(t.valor)}</span>
                         </div>
                       ))}
                     </div>
@@ -207,9 +204,10 @@ export default function FichaClienteModal({ cliente, onClose }) {
                   <input type="date" className="form-input" value={baixaData.data_pagamento} onChange={e => setBaixaData({ ...baixaData, data_pagamento: e.target.value })} required />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Conta de Destino</label>
-                  <select className="form-select" value={baixaData.conta_bancaria_id} onChange={e => setBaixaData({ ...baixaData, conta_bancaria_id: e.target.value })} required>
-                    {contasBancarias.map(cb => <option key={cb.id} value={cb.id}>{cb.nome}</option>)}
+                  <label className="form-label">Conta Financeira de Destino</label>
+                  <select className="form-select" value={baixaData.conta_financeira_id} onChange={e => setBaixaData({ ...baixaData, conta_financeira_id: e.target.value })} required>
+                    <option value="">Selecione...</option>
+                    {contasFinanceiras.map(cf => <option key={cf.id} value={cf.id}>{cf.nome}</option>)}
                   </select>
                 </div>
               </div>
