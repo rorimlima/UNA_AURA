@@ -6,6 +6,8 @@
  *   • Escuta eventos do SyncEngine para re-renderizar quando a tabela muda
  *   • NUNCA bloqueia a UI — dados do cache são imediatos
  *   • Suporta filtros locais e ordenação
+ *   • RAF debounce: coalesce re-reads no mesmo animation frame
+ *   • Stable references: evita loops infinitos de re-render
  *
  * Uso:
  *   const { data, loading, isStale, refresh } = useSyncTable('clientes', {
@@ -17,7 +19,6 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import syncEngine from '../lib/syncEngine';
-import db from '../lib/offlineDb';
 
 /**
  * @param {string} tableName - Nome da tabela sincronizada
@@ -44,17 +45,22 @@ export function useSyncTable(tableName, options = {}) {
   const [isStale, setIsStale] = useState(false);
   const [error, setError] = useState(null);
 
-  // Ref para evitar closures stale em subscriptions
+  // Refs para evitar closures stale em subscriptions
   const optionsRef = useRef(options);
   optionsRef.current = options;
+
+  // Track se é o primeiro load (para mostrar loading apenas na primeira vez)
+  const isFirstLoad = useRef(true);
+
+  // Debounce RAF: evita múltiplos loadFromCache no mesmo frame
+  const rafRef = useRef(null);
 
   // Serializa filtros para dependency (evita loops infinitos)
   const filterKey = JSON.stringify(filter);
 
   /**
    * Lê dados do cache local e aplica filtros/ordenação.
-   * Essa é uma operação SÍNCRONA do ponto de vista da UI
-   * (IndexedDB é muito rápido, ~1-5ms para 1000 registros).
+   * Essa é uma operação rápida (~1-5ms para 1000 registros).
    */
   const loadFromCache = useCallback(async () => {
     try {
@@ -63,7 +69,9 @@ export function useSyncTable(tableName, options = {}) {
       // Filtros simples
       const currentFilter = optionsRef.current.filter || {};
       for (const [key, value] of Object.entries(currentFilter)) {
-        records = records.filter(r => r[key] === value);
+        if (value !== undefined && value !== null) {
+          records = records.filter(r => r[key] === value);
+        }
       }
 
       // Filtro avançado
@@ -98,14 +106,37 @@ export function useSyncTable(tableName, options = {}) {
       console.error(`[useSyncTable] Erro lendo cache de "${tableName}":`, err);
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (isFirstLoad.current) {
+        isFirstLoad.current = false;
+        setLoading(false);
+      }
     }
   }, [tableName, filterKey]);
 
+  /**
+   * Debounced version: coalesce múltiplos refreshes no mesmo RAF frame.
+   * Previne gargalos de renderização quando muitos eventos chegam rapidamente.
+   */
+  const debouncedLoadFromCache = useCallback(() => {
+    if (rafRef.current) return; // Já agendado
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      loadFromCache();
+    });
+  }, [loadFromCache]);
+
   // ── Carregamento inicial ──
   useEffect(() => {
+    isFirstLoad.current = true;
     setLoading(true);
     loadFromCache();
+
+    return () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
   }, [loadFromCache]);
 
   // ── Escuta eventos do SyncEngine ──
@@ -113,20 +144,20 @@ export function useSyncTable(tableName, options = {}) {
     // Quando a tabela é atualizada (delta sync, realtime, ou mutação local)
     const unsub1 = syncEngine.subscribe('table_updated', (detail) => {
       if (detail.table === tableName) {
-        loadFromCache();
+        debouncedLoadFromCache();
       }
     });
 
     // Quando um sync completo termina
     const unsub2 = syncEngine.subscribe('sync_end', () => {
-      loadFromCache();
+      debouncedLoadFromCache();
     });
 
     return () => {
       unsub1();
       unsub2();
     };
-  }, [tableName, loadFromCache]);
+  }, [tableName, debouncedLoadFromCache]);
 
   // ── Refresh manual ──
   const refresh = useCallback(async () => {

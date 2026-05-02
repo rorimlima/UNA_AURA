@@ -6,29 +6,34 @@
  *   • Armazenar cursors de delta sync (_sync_cursor)
  *   • Gerenciar fila de mutações offline (_mutation_queue)
  *   • Merge inteligente respeitando `updated_at` (Last-Write-Wins local)
+ *   • Deduplicação de mutações via idempotency key
  *
  * REGRA: Nenhuma lógica de rede ou Supabase vive aqui — apenas IndexedDB.
  * ══════════════════════════════════════════════════════════════════════════════
  */
 
 const DB_NAME = 'una-aura-offline';
-const DB_VERSION = 2; // Bump para novo schema
+const DB_VERSION = 4; // v4: tabelas alinhadas com UNA AURA ERP
 
 // Todas as stores do app. Se precisar de mais, adicione aqui.
 const STORES = [
-  'produtos',
-  'clientes',
   'vendas',
   'vendas_itens',
+  'compras',
+  'compras_itens',
+  'produtos',
+  'clientes',
   'vendedores',
+  'fornecedores',
   'contas_receber',
   'contas_pagar',
+  'contas_bancarias',
+  'contas_financeiras',
+  'formas_pagamento',
+  'movimentacoes_financeiras',
+  'cobrancas_log',
   'empresa',
-  'fornecedores',
-  'veiculos_bloqueados',
-  'ocorrencias_agente',
-  'colaboradores',
-  'audit_logs',
+  'users',
   // Stores internos do Sync Engine
   '_mutation_queue',  // Fila de mutações pendentes
   '_sync_cursor',     // Timestamps de delta sync por tabela
@@ -55,9 +60,21 @@ function _openDb() {
           if (!name.startsWith('_')) {
             store.createIndex('updated_at', 'updated_at', { unique: false });
           }
-          // Índice de timestamp na fila de mutações
+          // Índice de timestamp e idempotency na fila de mutações
           if (name === '_mutation_queue') {
             store.createIndex('created_at', 'created_at', { unique: false });
+            store.createIndex('idempotencyKey', 'idempotencyKey', { unique: false });
+          }
+        } else {
+          // Upgrade: adicionar índices em stores existentes
+          if (name === '_mutation_queue') {
+            const tx = e.target.transaction;
+            const store = tx.objectStore(name);
+            if (!store.indexNames.contains('idempotencyKey')) {
+              try {
+                store.createIndex('idempotencyKey', 'idempotencyKey', { unique: false });
+              } catch (_) { /* index may already exist */ }
+            }
           }
         }
       }
@@ -163,6 +180,15 @@ export async function count(storeName) {
   });
 }
 
+/**
+ * Conta registros excluindo soft-deleted (para dashboards).
+ * Mais eficiente que getAll + filter + length.
+ */
+export async function countActive(storeName) {
+  const all = await getAll(storeName);
+  return all.filter(r => !r.is_deleted).length;
+}
+
 // ─── Merge com Last-Write-Wins ──────────────────────────────────────────────
 
 /**
@@ -241,21 +267,45 @@ export async function clearSyncCursor(tableName) {
 
 /**
  * Enfileira uma operação de escrita pendente.
- * @param {{ table: string, operation: 'INSERT'|'UPDATE'|'DELETE', payload: object, recordId?: string }} op
+ * Suporta idempotency key para evitar duplicatas.
+ *
+ * @param {{ table: string, operation: 'INSERT'|'UPDATE'|'DELETE', payload: object, recordId?: string, idempotencyKey?: string }} op
+ * @returns {Promise<object>} A entrada criada na fila
  */
 export async function enqueueMutation(op) {
+  // Verifica duplicata se idempotencyKey fornecida
+  if (op.idempotencyKey) {
+    const existing = await _findByIdempotencyKey(op.idempotencyKey);
+    if (existing) {
+      console.log(`[OfflineDb] Mutação duplicada ignorada: ${op.idempotencyKey}`);
+      return existing;
+    }
+  }
+
   const entry = {
     key: `mut_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`,
     table: op.table,
     operation: op.operation,
     payload: op.payload,
     recordId: op.recordId || null,
+    idempotencyKey: op.idempotencyKey || null,
     createdAt: new Date().toISOString(),
     retries: 0,
     lastError: null,
     nextRetryAt: null,
   };
-  return put('_mutation_queue', entry);
+  await put('_mutation_queue', entry);
+  return entry;
+}
+
+/**
+ * Busca mutação por idempotency key (para deduplicação).
+ * @private
+ */
+async function _findByIdempotencyKey(key) {
+  if (!key) return null;
+  const all = await getAll('_mutation_queue');
+  return all.find(op => op.idempotencyKey === key) || null;
 }
 
 /** Retorna todas as mutações pendentes, em ordem cronológica */
@@ -269,15 +319,22 @@ export async function dequeueMutation(key) {
   return remove('_mutation_queue', key);
 }
 
-/** Incrementa retry count + aplica exponential backoff timestamp */
+/**
+ * Incrementa retry count + aplica exponential backoff com jitter.
+ * Jitter previne "thundering herd" quando múltiplos clientes reconectam simultaneamente.
+ */
 export async function markMutationRetry(key, error) {
   const op = await getById('_mutation_queue', key);
   if (!op) return null;
 
   op.retries = (op.retries || 0) + 1;
   op.lastError = error?.message || String(error);
-  // Exponential backoff: 2^retries * 1000ms (max 5min)
-  const delayMs = Math.min(Math.pow(2, op.retries) * 1000, 5 * 60 * 1000);
+
+  // Exponential backoff: 2^retries * 1000ms (max 5min) + jitter aleatório (0-25%)
+  const baseDelay = Math.min(Math.pow(2, op.retries) * 1000, 5 * 60 * 1000);
+  const jitter = Math.random() * 0.25 * baseDelay;
+  const delayMs = baseDelay + jitter;
+
   op.nextRetryAt = new Date(Date.now() + delayMs).toISOString();
 
   await put('_mutation_queue', op);
@@ -307,6 +364,31 @@ export async function getLastSync(tableName) {
   return record?.value || null;
 }
 
+// ─── Utilitários ────────────────────────────────────────────────────────────
+
+/**
+ * Limpa TUDO — nuclear reset. Cuidado!
+ * Usado apenas em logout ou debug.
+ */
+export async function clearAll() {
+  for (const store of STORES) {
+    try {
+      await clear(store);
+    } catch (_) { /* store pode não existir */ }
+  }
+}
+
+/**
+ * Retorna o tamanho aproximado do banco em bytes (para debug/monitoring).
+ */
+export async function estimateStorageSize() {
+  if (navigator.storage && navigator.storage.estimate) {
+    const { usage, quota } = await navigator.storage.estimate();
+    return { usage, quota, percent: ((usage / quota) * 100).toFixed(1) };
+  }
+  return { usage: 0, quota: 0, percent: '0' };
+}
+
 // ─── Export ─────────────────────────────────────────────────────────────────
 
 export default {
@@ -317,6 +399,7 @@ export default {
   remove,
   clear,
   count,
+  countActive,
   mergeRecords,
   setSyncCursor,
   getSyncCursor,
@@ -329,4 +412,6 @@ export default {
   getMutationCount,
   setLastSync,
   getLastSync,
+  clearAll,
+  estimateStorageSize,
 };

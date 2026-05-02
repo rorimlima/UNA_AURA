@@ -23,5 +23,6 @@ export function useOffline() {
     lastSync: sync.lastSyncAt,
     syncError: sync.syncError,
     syncNow: sync.syncNow,
+    resetSync: sync.resetSync,
   };
 }

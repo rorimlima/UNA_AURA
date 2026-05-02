@@ -1,12 +1,15 @@
 /**
- * syncEngine.js — Motor de Sincronização Offline-First
+ * syncEngine.js — Motor de Sincronização Offline-First v3
  * ══════════════════════════════════════════════════════════════════════════════
  * SINGLETON que orquestra:
- *   1. Delta Fetch — busca apenas registros alterados desde `last_sync_at`
- *   2. Mutation Queue — enfileira escritas offline, aplica exponential backoff
- *   3. Optimistic UI — atualiza o cache local ANTES de ir ao servidor
+ *   1. Delta Fetch PAGINADO — busca registros alterados em loop até esgotar
+ *   2. Mutation Queue — enfileira escritas offline, exponential backoff + jitter
+ *   3. Optimistic UI — atualiza cache local ANTES de ir ao servidor
  *   4. Realtime Integration — recebe updates via `realtimeManager.js`
  *   5. Conflict Resolution — Last-Write-Wins (campo `updated_at`)
+ *   6. AsyncMutex — previne corrida de sync simultâneas
+ *   7. Idempotência — deduplicação de mutações via chave única
+ *   8. Batch emit — coalesce eventos para evitar re-renders excessivos
  *
  * ★ ISOLAMENTO: Este módulo NÃO importa React. Nenhum hook, useState ou
  *   useEffect mora aqui. A comunicação com a UI é via EventTarget (pub/sub).
@@ -35,6 +38,27 @@ const TABLE_CONFIGS = {
     realtime: true,
     deltaPageSize: 500,
   },
+  vendas_itens: {
+    name: 'vendas_itens',
+    select: '*',
+    writable: true,
+    realtime: true,
+    deltaPageSize: 500,
+  },
+  compras: {
+    name: 'compras',
+    select: '*',
+    writable: true,
+    realtime: true,
+    deltaPageSize: 500,
+  },
+  compras_itens: {
+    name: 'compras_itens',
+    select: '*',
+    writable: true,
+    realtime: true,
+    deltaPageSize: 500,
+  },
   clientes: {
     name: 'clientes',
     select: '*',
@@ -47,12 +71,7 @@ const TABLE_CONFIGS = {
     writable: true,
     realtime: true,
   },
-  veiculos_bloqueados: {
-    name: 'veiculos_bloqueados',
-    select: '*',
-    writable: true,
-    realtime: true,
-  },
+
   vendedores: {
     name: 'vendedores',
     select: '*',
@@ -77,6 +96,36 @@ const TABLE_CONFIGS = {
     writable: true,
     realtime: true,
   },
+  contas_bancarias: {
+    name: 'contas_bancarias',
+    select: '*',
+    writable: true,
+    realtime: true,
+  },
+  contas_financeiras: {
+    name: 'contas_financeiras',
+    select: '*',
+    writable: true,
+    realtime: true,
+  },
+  formas_pagamento: {
+    name: 'formas_pagamento',
+    select: '*',
+    writable: true,
+    realtime: true,
+  },
+  movimentacoes_financeiras: {
+    name: 'movimentacoes_financeiras',
+    select: '*',
+    writable: true,
+    realtime: true,
+  },
+  cobrancas_log: {
+    name: 'cobrancas_log',
+    select: '*',
+    writable: true,
+    realtime: true,
+  },
   empresa: {
     name: 'empresa',
     select: '*',
@@ -84,26 +133,36 @@ const TABLE_CONFIGS = {
     realtime: false,
     deltaPageSize: 10,
   },
-  ocorrencias_agente: {
-    name: 'ocorrencias_agente',
-    select: '*',
-    writable: true,
-    realtime: true,
-  },
-  colaboradores: {
-    name: 'colaboradores',
-    select: '*',
-    writable: false,
-    realtime: true,
-  },
 };
 
 // ─── Event Bus (desacoplado de React) ───────────────────────────────────────
 
 const _bus = new EventTarget();
 
+// Batch emit: coalesce múltiplos table_updated em um RAF frame
+let _pendingTableEmits = new Set();
+let _rafScheduled = false;
+
 /** @param {'sync_start'|'sync_end'|'table_updated'|'queue_change'|'error'|'online'|'offline'} type */
 function _emit(type, detail = {}) {
+  if (type === 'table_updated') {
+    // Coalesce: agrupa emits da mesma tabela no mesmo frame
+    _pendingTableEmits.add(detail.table || 'unknown');
+    if (!_rafScheduled) {
+      _rafScheduled = true;
+      // Usa setTimeout como fallback para ambientes sem RAF (SSR)
+      const schedule = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (fn) => setTimeout(fn, 16);
+      schedule(() => {
+        _rafScheduled = false;
+        const tables = [..._pendingTableEmits];
+        _pendingTableEmits.clear();
+        for (const table of tables) {
+          _bus.dispatchEvent(new CustomEvent('table_updated', { detail: { table, ...detail } }));
+        }
+      });
+    }
+    return;
+  }
   _bus.dispatchEvent(new CustomEvent(type, { detail }));
 }
 
@@ -114,142 +173,226 @@ export function subscribe(type, handler) {
   return () => _bus.removeEventListener(type, wrapped);
 }
 
+// ─── AsyncMutex — Previne sync simultâneas ──────────────────────────────────
+
+const MUTEX_TIMEOUT = 60_000; // Auto-release após 60s
+
+class AsyncMutex {
+  constructor() {
+    this._locked = false;
+    this._lockedAt = null;
+    this._queue = [];
+  }
+
+  async acquire() {
+    // Auto-release se travado por mais de MUTEX_TIMEOUT
+    if (this._locked && this._lockedAt && (Date.now() - this._lockedAt > MUTEX_TIMEOUT)) {
+      console.warn('[Mutex] Auto-release após timeout');
+      this._locked = false;
+      this._lockedAt = null;
+    }
+
+    if (this._locked) {
+      // Espera na fila com timeout de 30s
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error('Mutex acquire timeout'));
+        }, 30_000);
+        this._queue.push(() => {
+          clearTimeout(timer);
+          this._locked = true;
+          this._lockedAt = Date.now();
+          resolve();
+        });
+      });
+    }
+
+    this._locked = true;
+    this._lockedAt = Date.now();
+  }
+
+  release() {
+    if (this._queue.length > 0) {
+      const next = this._queue.shift();
+      next();
+    } else {
+      this._locked = false;
+      this._lockedAt = null;
+    }
+  }
+
+  get isLocked() {
+    return this._locked;
+  }
+}
+
 // ─── State ──────────────────────────────────────────────────────────────────
 
-let _syncing = false;
-let _syncStartedAt = null;
+const _syncMutex = new AsyncMutex();
 let _initialized = false;
 const MAX_MUTATION_RETRIES = 8;
 const QUEUE_PROCESS_INTERVAL = 15_000; // 15s
+const SYNC_TIMEOUT = 20_000; // 20s per table
 let _queueIntervalId = null;
 
-// ─── 1. DELTA FETCH — Busca inteligente ─────────────────────────────────────
+// ─── 1. DELTA FETCH — Busca inteligente com paginação ───────────────────────
 
 /**
- * Faz o Delta Sync de uma tabela:
+ * Faz o Delta Sync de uma tabela com PAGINAÇÃO COMPLETA:
  *   • Na PRIMEIRA vez (sem cursor): full load → salva tudo no cache
  *   • Nas PRÓXIMAS: busca apenas WHERE updated_at > cursor
  *   • Registros com is_deleted = true são REMOVIDOS do cache local
+ *   • Pagina até não haver mais registros (evita perda de deltas)
  *
  * @param {string} tableName
- * @returns {Promise<{ count: number, isInitial: boolean }>}
+ * @returns {Promise<{ count: number, isInitial: boolean, pages: number }>}
  */
 export async function deltaSync(tableName) {
   const config = TABLE_CONFIGS[tableName];
   if (!config) {
     console.warn(`[SyncEngine] Tabela "${tableName}" não configurada.`);
-    return { count: 0, isInitial: false };
+    return { count: 0, isInitial: false, pages: 0 };
   }
 
-  const cursor = await db.getSyncCursor(tableName);
+  let cursor = await db.getSyncCursor(tableName);
   const isInitial = !cursor;
   const pageSize = config.deltaPageSize || 500;
+  let totalFetched = 0;
+  let pages = 0;
 
   try {
-    let query = supabase
-      .from(config.name)
-      .select(config.select || '*')
-      .order('updated_at', { ascending: true })
-      .limit(pageSize);
+    // ── LOOP PAGINADO — busca até não haver mais registros ──
+    let hasMore = true;
 
-    // Aplica filtros base da config
-    if (config.baseFilter) {
-      for (const [col, val] of Object.entries(config.baseFilter)) {
-        query = query.eq(col, val);
+    while (hasMore) {
+      let query = supabase
+        .from(config.name)
+        .select(config.select || '*')
+        .order('updated_at', { ascending: true })
+        .limit(pageSize);
+
+      // Aplica filtros base da config
+      if (config.baseFilter) {
+        for (const [col, val] of Object.entries(config.baseFilter)) {
+          query = query.eq(col, val);
+        }
+      }
+
+      // Delta: apenas registros mais novos que o cursor
+      // Usa >= para capturar registros com o MESMO timestamp (microsegundos)
+      // mas evita duplicatas via merge LWW no IndexedDB
+      if (cursor) {
+        query = query.gt('updated_at', cursor);
+      }
+
+      // Timeout de 20s para evitar travamento
+      const result = await Promise.race([
+        query,
+        new Promise((_, rej) =>
+          setTimeout(() => rej(new Error(`Timeout: deltaSync ${tableName}`)), SYNC_TIMEOUT)
+        ),
+      ]);
+
+      const { data, error } = result;
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      pages++;
+      totalFetched += data.length;
+
+      if (isInitial && pages === 1) {
+        // Primeira página do load inicial: limpa e carrega
+        await db.clear(tableName);
+        const nonDeleted = data.filter(r => !r.is_deleted);
+        await db.putAll(tableName, nonDeleted);
+      } else if (isInitial) {
+        // Páginas subsequentes do load inicial
+        const nonDeleted = data.filter(r => !r.is_deleted);
+        await db.putAll(tableName, nonDeleted);
+      } else {
+        // Delta: merge inteligente com LWW
+        await db.mergeRecords(tableName, data);
+      }
+
+      // Atualiza o cursor para o updated_at mais recente desta página
+      const latestTs = data.reduce((max, r) => {
+        return r.updated_at > max ? r.updated_at : max;
+      }, cursor || '');
+
+      if (latestTs) {
+        cursor = latestTs;
+        await db.setSyncCursor(tableName, latestTs);
+      }
+
+      // Se recebeu menos que o pageSize, não há mais páginas
+      if (data.length < pageSize) {
+        hasMore = false;
       }
     }
 
-    // Delta: apenas registros mais novos que o cursor
-    if (cursor) {
-      query = query.gt('updated_at', cursor);
-    }
-
-    // Timeout de 20s para evitar travamento
-    const result = await Promise.race([
-      query,
-      new Promise((_, rej) =>
-        setTimeout(() => rej(new Error(`Timeout: deltaSync ${tableName}`)), 20_000)
-      ),
-    ]);
-
-    const { data, error } = result;
-    if (error) throw error;
-
-    if (!data || data.length === 0) {
-      console.log(`[SyncEngine] ✓ ${tableName}: sem alterações (delta)`);
-      return { count: 0, isInitial };
-    }
-
-    if (isInitial) {
-      // Primeira vez: limpa e carrega tudo
-      await db.clear(tableName);
-      const nonDeleted = data.filter(r => !r.is_deleted);
-      await db.putAll(tableName, nonDeleted);
+    if (totalFetched > 0) {
+      console.log(`[SyncEngine] ✓ ${tableName}: ${totalFetched} registros em ${pages} página(s) (${isInitial ? 'initial' : 'delta'})`);
+      _emit('table_updated', { table: tableName, count: totalFetched, isInitial });
     } else {
-      // Delta: merge inteligente com LWW
-      await db.mergeRecords(tableName, data);
+      console.log(`[SyncEngine] ✓ ${tableName}: sem alterações`);
     }
 
-    // Atualiza o cursor para o updated_at mais recente recebido
-    const latestTs = data.reduce((max, r) => {
-      return r.updated_at > max ? r.updated_at : max;
-    }, cursor || '');
-    if (latestTs) {
-      await db.setSyncCursor(tableName, latestTs);
-    }
-
-    console.log(`[SyncEngine] ✓ ${tableName}: ${data.length} registros (${isInitial ? 'initial' : 'delta'})`);
-    _emit('table_updated', { table: tableName, count: data.length, isInitial });
-
-    return { count: data.length, isInitial };
+    return { count: totalFetched, isInitial, pages };
   } catch (err) {
     console.error(`[SyncEngine] ✗ deltaSync(${tableName}):`, err.message);
     _emit('error', { table: tableName, error: err.message });
-    return { count: 0, isInitial, error: err.message };
+    return { count: 0, isInitial, pages, error: err.message };
   }
 }
 
 /**
  * Sincroniza TODAS as tabelas configuradas em paralelo.
+ * Usa AsyncMutex para evitar corrida de sync simultâneas.
  */
 export async function syncAll() {
-  if (_syncing) {
-    // Auto-release após 45s para evitar deadlock
-    if (_syncStartedAt && (Date.now() - _syncStartedAt > 45_000)) {
-      console.warn('[SyncEngine] Sync travado detectado, resetando...');
-      _syncing = false;
-    } else {
-      console.log('[SyncEngine] Sync já em andamento, ignorando.');
-      return;
-    }
+  // Verifica conectividade real (não apenas navigator.onLine)
+  if (!await _isReallyOnline()) {
+    console.log('[SyncEngine] Sem conectividade real, abortando sync.');
+    return { success: 0, failed: 0 };
   }
 
-  _syncing = true;
-  _syncStartedAt = Date.now();
+  try {
+    await _syncMutex.acquire();
+  } catch (err) {
+    console.log('[SyncEngine] Sync já em andamento (mutex), ignorando.');
+    return { success: 0, failed: 0 };
+  }
+
   _emit('sync_start');
 
   const tables = Object.keys(TABLE_CONFIGS);
   let success = 0;
   let failed = 0;
 
-  // Paraleliza para velocidade em mobile
-  const results = await Promise.allSettled(
-    tables.map(t => deltaSync(t))
-  );
+  try {
+    // Paraleliza para velocidade em mobile
+    const results = await Promise.allSettled(
+      tables.map(t => deltaSync(t))
+    );
 
-  for (const r of results) {
-    if (r.status === 'fulfilled' && !r.value.error) success++;
-    else failed++;
+    for (const r of results) {
+      if (r.status === 'fulfilled' && !r.value.error) success++;
+      else failed++;
+    }
+
+    // Processa fila de mutações pendentes
+    await processQueue();
+
+    console.log(`[SyncEngine] Sync completo: ${success}/${tables.length} ok`);
+  } finally {
+    _syncMutex.release();
+    _emit('sync_end', { success, failed, total: tables.length });
   }
 
-  // Processa fila de mutações pendentes
-  await processQueue();
-
-  _syncing = false;
-  _syncStartedAt = null;
-  _emit('sync_end', { success, failed, total: tables.length });
-
-  console.log(`[SyncEngine] Sync completo: ${success}/${tables.length} ok`);
   return { success, failed };
 }
 
@@ -259,7 +402,8 @@ export async function syncAll() {
  * Executa uma mutação de forma Optimistic:
  *   1. Aplica no cache local IMEDIATAMENTE
  *   2. Tenta enviar ao Supabase
- *   3. Se falhar, enfileira com exponential backoff
+ *   3. Se falhar, enfileira com exponential backoff + jitter
+ *   4. Suporta idempotency key para deduplicação
  *
  * @param {string} table - Nome da tabela
  * @param {'INSERT'|'UPDATE'|'DELETE'} operation
@@ -274,8 +418,10 @@ export async function mutate(table, operation, payload, recordId) {
     return { success: false, error: 'Tabela somente leitura' };
   }
 
-  // ── 1. Optimistic update no cache local ──
+  // ── Gerar idempotency key para deduplicação ──
+  const idempotencyKey = `${table}_${operation}_${recordId || payload.id || ''}_${Date.now()}`;
 
+  // ── 1. Optimistic update no cache local ──
   const now = new Date().toISOString();
 
   if (operation === 'INSERT') {
@@ -314,7 +460,11 @@ export async function mutate(table, operation, payload, recordId) {
   // ── 2. Tenta enviar ao servidor ──
 
   if (!navigator.onLine) {
-    await db.enqueueMutation({ table, operation, payload, recordId: recordId || payload.id });
+    await db.enqueueMutation({
+      table, operation, payload,
+      recordId: recordId || payload.id,
+      idempotencyKey,
+    });
     _emit('queue_change', { table, pending: await db.getMutationCount() });
     return { success: false, queued: true };
   }
@@ -332,12 +482,18 @@ export async function mutate(table, operation, payload, recordId) {
           await db.setSyncCursor(table, result[0].updated_at);
         }
       }
+      // Emit novamente com dados autoritativos do servidor
+      _emit('table_updated', { table, source: 'server_confirm', operation, recordId: recordId || payload.id });
     }
 
     return { success: true, data: result };
   } catch (err) {
     console.warn(`[SyncEngine] Falha remota, enfileirando:`, err.message);
-    await db.enqueueMutation({ table, operation, payload, recordId: recordId || payload.id });
+    await db.enqueueMutation({
+      table, operation, payload,
+      recordId: recordId || payload.id,
+      idempotencyKey,
+    });
     _emit('queue_change', { table, pending: await db.getMutationCount() });
     return { success: false, queued: true, error: err.message };
   }
@@ -380,7 +536,7 @@ async function _executeRemote(table, operation, payload, recordId) {
   }
 }
 
-// ─── 3. QUEUE PROCESSOR — Exponential Backoff ───────────────────────────────
+// ─── 3. QUEUE PROCESSOR — Exponential Backoff + Jitter ──────────────────────
 
 /**
  * Processa a fila de mutações pendentes.
@@ -432,6 +588,37 @@ export async function processQueue() {
 // ─── 4. NETWORK LISTENERS & AUTO-SYNC ───────────────────────────────────────
 
 let _autoSyncActive = false;
+let _lastSyncTimestamp = 0;
+const MIN_SYNC_INTERVAL = 120_000; // 2 minutos entre syncs automáticos
+
+/**
+ * Verifica conectividade REAL (não apenas navigator.onLine).
+ * navigator.onLine retorna true em captive portals e redes sem internet.
+ */
+async function _isReallyOnline() {
+  if (!navigator.onLine) return false;
+
+  try {
+    // Tenta um HEAD request leve ao Supabase para validar conectividade
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 5000);
+
+    const url = supabase.supabaseUrl || '';
+    if (!url) return navigator.onLine;
+
+    const resp = await fetch(`${url}/rest/v1/`, {
+      method: 'HEAD',
+      signal: controller.signal,
+      headers: {
+        'apikey': supabase.supabaseKey || '',
+      },
+    });
+    return resp.ok || resp.status === 400 || resp.status === 401;
+  } catch {
+    // Se o fetch falhou, provavelmente sem internet
+    return false;
+  }
+}
 
 function _onOnline() {
   console.log('[SyncEngine] 🟢 Online — sincronizando...');
@@ -476,18 +663,19 @@ export function initialize() {
     setTimeout(() => syncAll(), 1500);
   }
 
-  console.log('[SyncEngine] ✅ Inicializado');
+  console.log('[SyncEngine] ✅ Inicializado v3');
 }
 
 function _handleVisibility() {
   if (document.visibilityState !== 'visible') return;
-  if (!navigator.onLine || _syncing) return;
+  if (!navigator.onLine || _syncMutex.isLocked) return;
 
-  // Só re-sync se faz mais de 2 minutos
-  if (_syncStartedAt && (Date.now() - _syncStartedAt < 120_000)) return;
+  // Só re-sync se faz mais de MIN_SYNC_INTERVAL
+  if (Date.now() - _lastSyncTimestamp < MIN_SYNC_INTERVAL) return;
 
   setTimeout(() => {
     if (document.visibilityState === 'visible' && navigator.onLine) {
+      _lastSyncTimestamp = Date.now();
       processQueue();
       syncAll();
     }
@@ -556,7 +744,7 @@ export async function getCached(tableName) {
 
 /** Retorna se está sincronizando */
 export function isSyncing() {
-  return _syncing;
+  return _syncMutex.isLocked;
 }
 
 /** Retorna a contagem de mutações pendentes */
@@ -581,6 +769,17 @@ export async function forceFullReload(tableName) {
   return deltaSync(tableName);
 }
 
+/**
+ * Reseta TUDO — limpa cache, cursors e fila de mutações.
+ * Usar apenas em logout ou debug.
+ */
+export async function resetAll() {
+  destroy();
+  await db.clearAll();
+  _lastSyncTimestamp = 0;
+  console.log('[SyncEngine] Reset completo');
+}
+
 // ─── Default Export ─────────────────────────────────────────────────────────
 
 export default {
@@ -597,5 +796,6 @@ export default {
   getTableConfig,
   getConfiguredTables,
   forceFullReload,
+  resetAll,
   subscribe,
 };

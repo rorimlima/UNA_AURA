@@ -64,6 +64,10 @@ export async function getPendingCount() {
   return syncEngine.getPendingCount();
 }
 
+export async function resetAll() {
+  return syncEngine.resetAll();
+}
+
 export default {
   syncTable,
   syncAll,
@@ -75,4 +79,5 @@ export default {
   isSyncing,
   getCachedData,
   getPendingCount,
+  resetAll,
 };
