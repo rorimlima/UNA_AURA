@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { logActivity } from '../lib/activityLogger';
 
 const AuthContext = createContext({});
 
@@ -66,6 +67,8 @@ export function AuthProvider({ children }) {
   async function signIn(email, password) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
+    // Dispara log em background (fire and forget)
+    setTimeout(() => logActivity('LOGIN', 'auth', null, `Login de ${email}`), 100);
     return data;
   }
 
@@ -79,6 +82,9 @@ export function AuthProvider({ children }) {
     loggingOutRef.current = true;
 
     try {
+      // Registrar log ANTES de perder a sessão
+      await logActivity('LOGOUT', 'auth', null, `Logout`);
+      
       // Attempt server-side sign out (best-effort)
       await supabase.auth.signOut();
     } catch (err) {

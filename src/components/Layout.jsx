@@ -24,10 +24,12 @@ import {
   Bug,
   Sun,
   Moon,
-  UserCheck
+  UserCheck,
+  Activity
 } from 'lucide-react';
 import './Layout.css';
 import OfflineIndicator from './OfflineIndicator';
+import { todayStr } from '../lib/money';
 
 const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -50,6 +52,7 @@ const NAV_ITEMS_EXTRA = [
 
 const NAV_ITEMS_CONFIG = [
   { to: '/empresa', icon: Building2, label: 'Minha Empresa' },
+  { to: '/logs', icon: Activity, label: 'Logs de Atividade' },
   { to: '/tutorial', icon: PlayCircle, label: 'Ajuda & Tutoriais' },
 ];
 
@@ -94,7 +97,7 @@ export default function Layout() {
 
   useEffect(() => {
     // Badge count for inadimplência
-    const hoje = new Date().toISOString().split('T')[0];
+    const hoje = todayStr();
     supabase
       .from('contas_receber')
       .select('id', { count: 'exact', head: true })

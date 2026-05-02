@@ -4,7 +4,7 @@ import { TrendingUp, TrendingDown, DollarSign, Calendar, ChevronLeft, ChevronRig
 import { downloadICS } from '../lib/googleCalendar';
 import { useToast } from '../contexts/ToastContext';
 import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
-import { formatMoney } from '../lib/money';
+import { formatMoney, toLocalDateStr, todayStr } from '../lib/money';
 
 const PERIODOS = [
   { key: 7, label: '7 dias' },
@@ -32,8 +32,8 @@ export default function FluxoCaixa() {
     const fim = new Date();
     fim.setDate(fim.getDate() + periodo);
 
-    const inicioStr = inicio.toISOString().split('T')[0];
-    const fimStr = fim.toISOString().split('T')[0];
+    const inicioStr = toLocalDateStr(inicio);
+    const fimStr = toLocalDateStr(fim);
 
     const [{ data: receber }, { data: pagar }] = await Promise.all([
       supabase.from('contas_receber')
@@ -62,7 +62,7 @@ export default function FluxoCaixa() {
     for (let i = 0; i <= periodo; i++) {
       const d = new Date(hoje);
       d.setDate(d.getDate() + i);
-      addDia(d.toISOString().split('T')[0]);
+      addDia(toLocalDateStr(d));
     }
 
     (receber || []).forEach(c => {
@@ -176,7 +176,7 @@ export default function FluxoCaixa() {
             {dados.map((dia, i) => {
               const hE = dia.entradas > 0 ? Math.max((dia.entradas / maxVal) * 120, 4) : 0;
               const hS = dia.saidas > 0 ? Math.max((dia.saidas / maxVal) * 120, 4) : 0;
-              const isHoje = dia.data === new Date().toISOString().split('T')[0];
+              const isHoje = dia.data === todayStr();
               return (
                 <div key={i} title={`${dia.data}\nEntradas: ${fmt(dia.entradas)}\nSaídas: ${fmt(dia.saidas)}`}
                   style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, flex: '1 0 24px' }}>
@@ -215,7 +215,7 @@ export default function FluxoCaixa() {
           <tbody>
             {dados.map((dia, i) => {
               const saldoDia = dia.entradas - dia.saidas;
-              const isHoje = dia.data === new Date().toISOString().split('T')[0];
+              const isHoje = dia.data === todayStr();
               const semMovimento = dia.entradas === 0 && dia.saidas === 0;
               return (
                 <tr key={i} style={isHoje ? { background: 'rgba(201,169,110,0.06)' } : semMovimento ? { opacity: 0.4 } : {}}>

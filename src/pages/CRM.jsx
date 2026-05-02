@@ -8,6 +8,8 @@ import {
 
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
+import { todayStr, toLocalDateStr } from '../lib/money';
+
 function fmt(v) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
 }
@@ -16,22 +18,22 @@ function getPeriodDates(filter) {
   const now = new Date();
   if (filter === '7d') {
     const d = new Date(); d.setDate(d.getDate() - 7);
-    return [d.toISOString().split('T')[0], now.toISOString().split('T')[0]];
+    return [toLocalDateStr(d), todayStr()];
   }
   if (filter === '30d') {
     const d = new Date(); d.setDate(d.getDate() - 30);
-    return [d.toISOString().split('T')[0], now.toISOString().split('T')[0]];
+    return [toLocalDateStr(d), todayStr()];
   }
   if (filter === '6m') {
     const d = new Date(); d.setMonth(d.getMonth() - 6);
-    return [d.toISOString().split('T')[0], now.toISOString().split('T')[0]];
+    return [toLocalDateStr(d), todayStr()];
   }
   if (filter === 'year') {
-    return [`${now.getFullYear()}-01-01`, now.toISOString().split('T')[0]];
+    return [`${now.getFullYear()}-01-01`, todayStr()];
   }
   // current month
-  const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-  return [start, now.toISOString().split('T')[0]];
+  const start = toLocalDateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+  return [start, todayStr()];
 }
 
 export default function CRM() {
@@ -61,7 +63,7 @@ export default function CRM() {
       supabase.from('vendas')
         .select('data, total')
         .eq('status', 'finalizada')
-        .gte('data', (() => { const d = new Date(); d.setMonth(d.getMonth() - 5); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0]; })()),
+        .gte('data', (() => { const d = new Date(); d.setMonth(d.getMonth() - 5); return toLocalDateStr(new Date(d.getFullYear(), d.getMonth(), 1)); })()),
     ]);
 
     const v = vendas || [];

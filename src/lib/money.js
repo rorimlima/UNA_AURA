@@ -61,3 +61,25 @@ export const maskPhone = (v) => {
   if (d.length <= 10) return d.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4})(\d)/, '$1-$2');
   return d.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2');
 };
+
+// ────────────────────────────────────────────────────────────────────────────
+// Utilitários de Data (timezone-safe)
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Converte um objeto Date para string 'YYYY-MM-DD' usando fuso LOCAL (não UTC).
+ * Isso evita o bug clássico onde toISOString() retrocede 1 dia em UTC-3.
+ *
+ * @param {Date} date
+ * @returns {string} 'YYYY-MM-DD'
+ */
+export const toLocalDateStr = (date) => {
+  const d = date instanceof Date ? date : new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+/** Retorna a data de HOJE no fuso local como 'YYYY-MM-DD' */
+export const todayStr = () => toLocalDateStr(new Date());

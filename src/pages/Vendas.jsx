@@ -3,7 +3,8 @@ import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
 import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { Plus, Search, Receipt, X, Trash2, Printer, CheckCircle, DollarSign, TrendingUp } from 'lucide-react';
-import { formatMoney, toCents, toReal } from '../lib/money';
+import { formatMoney, toCents, toReal, toLocalDateStr, todayStr } from '../lib/money';
+import { logActivity } from '../lib/activityLogger';
 
 const fmt = formatMoney;
 const fmtPag = { pix: 'PIX', dinheiro: 'Dinheiro', credito: 'Cartão Crédito', debito: 'Cartão Débito', boleto: 'Boleto', transferencia: 'Transferência', cheque: 'Cheque', crediario: 'Crediário' };
@@ -169,7 +170,7 @@ export default function Vendas() {
   const [loading, setLoading] = useState(true);
   useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ cliente_id: '', vendedor_id: '', data: new Date().toISOString().split('T')[0], numero_pedido: '', observacoes: '' });
+  const [form, setForm] = useState({ cliente_id: '', vendedor_id: '', data: todayStr(), numero_pedido: '', observacoes: '' });
   const [cart, setCart] = useState([]);
   const [pagamentos, setPagamentos] = useState([]); // Multiple payments
   const [search, setSearch] = useState('');
@@ -287,7 +288,7 @@ export default function Vendas() {
   const cartTotal = cart.reduce((s, i) => s + (i.quantidade * i.valor_unitario), 0);
 
   function addPagamento() {
-    const defaultData = form.data || new Date().toISOString().split('T')[0];
+    const defaultData = form.data || todayStr();
     const remanescente = Math.max(0, cartTotal - pagamentosTotal);
     setPagamentos([...pagamentos, { id: Date.now(), forma_pagamento: 'pix', valor: remanescente, parcelas: 1, primeiro_vencimento: defaultData }]);
   }
@@ -301,7 +302,7 @@ export default function Vendas() {
 
   function openNew() {
     const uniqueId = 'PD-' + Date.now().toString(36).toUpperCase();
-    setForm({ cliente_id: '', vendedor_id: '', data: new Date().toISOString().split('T')[0], numero_pedido: uniqueId, observacoes: '' });
+    setForm({ cliente_id: '', vendedor_id: '', data: todayStr(), numero_pedido: uniqueId, observacoes: '' });
     setCart([]);
     setPagamentos([]);
     setClienteSearch('');
@@ -383,7 +384,7 @@ export default function Vendas() {
       for (let i = 0; i < parcelas; i++) {
         const vencimento = new Date(baseVencimento); 
         vencimento.setMonth(vencimento.getMonth() + i);
-        const dataVenc = vencimento.toISOString().split('T')[0];
+        const dataVenc = toLocalDateStr(vencimento);
         
         // Compensar erro de arredondamento na última parcela
         const valFinal = i === parcelas - 1 ? pag.valor - (valorParcela * (parcelas - 1)) : valorParcela;
@@ -423,6 +424,10 @@ export default function Vendas() {
       .eq('id', venda.id).single();
 
     addToast('Venda registrada com sucesso!');
+    logActivity('CREATE', 'venda', venda.id, `Venda #${form.numero_pedido || venda.id.substring(0,8)}`, {
+      total: cartTotal, itens: cart.length, parcelas: parcelasGeradas.length,
+      cliente: vendaCompleta?.clientes?.nome || null,
+    });
     setShowModal(false); 
 
     if (confirm('Venda salva! Deseja imprimir o recibo?')) {

@@ -22,6 +22,7 @@ import CRM from './pages/CRM';
 import Conciliacao from './pages/Conciliacao';
 import Tutorial from './pages/Tutorial';
 import QA from './pages/QA';
+import Logs from './pages/Logs';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -74,6 +75,7 @@ export default function App() {
               <Route path="crm" element={<CRM />} />
               <Route path="tutorial" element={<Tutorial />} />
               <Route path="qa" element={<QA />} />
+              <Route path="logs" element={<Logs />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -7,7 +7,7 @@ import {
   Filter, Download, Clock, TrendingDown, Phone, X, ChevronDown
 } from 'lucide-react';
 import { generateCalendarLink, downloadICS, generateWhatsAppMessage } from '../lib/googleCalendar';
-import { formatMoney, toCents, toReal } from '../lib/money';
+import { formatMoney, toCents, toReal, todayStr } from '../lib/money';
 
 const FILTROS = [
   { key: 'todos', label: 'Todos' },
@@ -26,14 +26,14 @@ export default function Inadimplencia() {
   const [filtro, setFiltro] = useState('todos');
   const [showPagtoModal, setShowPagtoModal] = useState(false);
   const [selectedConta, setSelectedConta] = useState(null);
-  const [pagtoForm, setPagtoForm] = useState({ valor: '', data: new Date().toISOString().split('T')[0], observacao: '' });
+  const [pagtoForm, setPagtoForm] = useState({ valor: '', data: todayStr(), observacao: '' });
   const [logMap, setLogMap] = useState({});
 
   useEffect(() => { load(); }, []);
 
   async function load() {
     setLoading(true);
-    const hoje = new Date().toISOString().split('T')[0];
+    const hoje = todayStr();
 
     // Busca contas em atraso (pendente + vencido) agrupadas por cliente
     const { data: contas } = await supabase
@@ -108,7 +108,7 @@ export default function Inadimplencia() {
   function openCalendar(conta) {
     const link = generateCalendarLink({
       title: `💎 Cobrança UNA AURA — ${conta.clientes?.nome || 'Cliente'}`,
-      date: new Date().toISOString().split('T')[0],
+      date: todayStr(),
       details: `Parcela ${conta.parcela}/${conta.total_parcelas}\nValor: ${formatMoney(conta.valor)}\nVencimento: ${conta.data_vencimento}\nDescrição: ${conta.descricao || ''}`,
     });
     window.open(link, '_blank');
@@ -140,7 +140,7 @@ export default function Inadimplencia() {
     const events = contas.map(c => ({
       id: c.id,
       title: `Cobrança ${c.clientes?.nome || 'Cliente'} — ${formatMoney(c.valor)}`,
-      date: new Date().toISOString().split('T')[0],
+      date: todayStr(),
       details: `Vencimento: ${c.data_vencimento}\n${c.descricao || ''}`,
     }));
     downloadICS(events, 'cobrancas-inadimplencia.ics');
@@ -315,7 +315,7 @@ export default function Inadimplencia() {
                             {/* Registrar Pagamento */}
                             <button className="btn btn-sm" title="Registrar pagamento"
                               style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)', border: '1px solid rgba(74,222,128,0.2)' }}
-                              onClick={() => { setSelectedConta(c); setPagtoForm({ valor: toReal(c.valor), data: new Date().toISOString().split('T')[0], observacao: '' }); setShowPagtoModal(true); }}>
+                              onClick={() => { setSelectedConta(c); setPagtoForm({ valor: toReal(c.valor), data: todayStr(), observacao: '' }); setShowPagtoModal(true); }}>
                               <Check size={13} />
                             </button>
                           </div>

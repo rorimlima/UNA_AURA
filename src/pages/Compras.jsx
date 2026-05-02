@@ -3,7 +3,8 @@ import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
 import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { Plus, Search, ShoppingCart, X, Trash2, DollarSign, TrendingDown, Edit2, Eye, FileText, Package, CreditCard, Calendar, Hash } from 'lucide-react';
-import { formatMoney, toCents, toReal } from '../lib/money';
+import { formatMoney, toCents, toReal, toLocalDateStr, todayStr } from '../lib/money';
+import { logActivity } from '../lib/activityLogger';
 
 export default function Compras() {
   const { addToast } = useToast();
@@ -22,7 +23,7 @@ export default function Compras() {
   const [editingCompra, _setEditingCompra] = useState(null);
   const editingRef = useRef(null);
   function setEditingCompra(val) { editingRef.current = val; _setEditingCompra(val); }
-  const [form, setForm] = useState({ fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
+  const [form, setForm] = useState({ fornecedor_id:'', data:todayStr(), numero_nota:'', numero_pedido:'', observacoes:'' });
   const [cart, setCart] = useState([]);
   const [pagamentos, setPagamentos] = useState([]); // Multiple payments
   const [search, setSearch] = useState('');
@@ -154,7 +155,7 @@ export default function Compras() {
   const cartTotal = cart.reduce((s, i) => s + (i.quantidade * i.valor_unitario), 0);
 
   function addPagamento() {
-    const defaultData = form.data || new Date().toISOString().split('T')[0];
+    const defaultData = form.data || todayStr();
     const remanescente = Math.max(0, cartTotal - pagamentosTotal);
     const defaultForma = formasPagamento.length > 0 ? formasPagamento[0].nome : 'PIX';
     setPagamentos([...pagamentos, { id: Date.now(), forma_pagamento: defaultForma, valor: remanescente, parcelas: 1, primeiro_vencimento: defaultData }]);
@@ -169,7 +170,7 @@ export default function Compras() {
 
   function openNew() {
     setEditingCompra(null);
-    setForm({ _compra_id: null, fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
+    setForm({ _compra_id: null, fornecedor_id:'', data:todayStr(), numero_nota:'', numero_pedido:'', observacoes:'' });
     setCart([]);
     setPagamentos([]);
     setFornSearch('');
@@ -278,7 +279,7 @@ export default function Compras() {
         for (let i = 0; i < parcelas; i++) {
           const vencimento = new Date(baseVencimento);
           vencimento.setMonth(vencimento.getMonth() + i);
-          const dataVenc = vencimento.toISOString().split('T')[0];
+          const dataVenc = toLocalDateStr(vencimento);
           const valFinal = i === parcelas - 1 ? pag.valor - (valorParcela * (parcelas - 1)) : valorParcela;
           parcelasGeradas.push({
             compra_id: compraId, fornecedor_id: form.fornecedor_id,
@@ -303,6 +304,9 @@ export default function Compras() {
       }
 
       addToast(compraIdExistente ? '✅ Compra atualizada com sucesso!' : '✅ Compra registrada!', 'success');
+      logActivity(compraIdExistente ? 'UPDATE' : 'CREATE', 'compra', compraId, `Compra #${form.numero_nota || compraId.substring(0,8)}`, {
+        total: cartTotal, itens: cart.length, fornecedor_id: form.fornecedor_id,
+      });
       setEditingCompra(null);
       setShowModal(false); setCart([]); setPagamentos([]); setProdSearches({}); setProdDropdowns({}); setFornSearch(''); setShowFornDropdown(false); setFornSearchResults([]);
       await load();
@@ -333,6 +337,7 @@ export default function Compras() {
       // 4. Excluir a compra
       const { error } = await supabase.from('compras').delete().eq('id', compra.id);
       if (error) return addToast('Erro ao excluir: ' + error.message, 'error');
+      logActivity('DELETE', 'compra', compra.id, `Compra #${compra.codigo || compra.id.substring(0,8)}`, { total: compra.total });
       addToast('Compra excluída e estoque revertido!');
       load();
     } catch (err) {
@@ -345,7 +350,7 @@ export default function Compras() {
     setForm({
       _compra_id: c.id,
       fornecedor_id: c.fornecedor_id || '',
-      data: c.data || new Date().toISOString().split('T')[0],
+      data: c.data || todayStr(),
       numero_nota: c.numero_nota || '',
       numero_pedido: c.numero_pedido || '',
       observacoes: c.observacoes || ''
@@ -392,7 +397,7 @@ export default function Compras() {
 
   function openNewCompra() {
     setEditingCompra(null);
-    setForm({ _compra_id: null, fornecedor_id:'', data:new Date().toISOString().split('T')[0], numero_nota:'', numero_pedido:'', observacoes:'' });
+    setForm({ _compra_id: null, fornecedor_id:'', data:todayStr(), numero_nota:'', numero_pedido:'', observacoes:'' });
     setCart([{ produto_id:'', quantidade:1, valor_unitario:0 }]);
     setPagamentos([]);
     setFornSearch('');

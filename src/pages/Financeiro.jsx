@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
 import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { DollarSign, ArrowDownCircle, ArrowUpCircle, Check, X, Plus, Search, Building2, CreditCard } from 'lucide-react';
-import { formatMoney, toCents } from '../lib/money';
+import { formatMoney, toCents, todayStr } from '../lib/money';
 
 export default function Financeiro() {
   const { addToast } = useToast();
@@ -34,12 +34,12 @@ export default function Financeiro() {
   }
 
   async function markPaid(id) {
-    await supabase.from('contas_pagar').update({ status: 'pago', data_pagamento: new Date().toISOString().split('T')[0] }).eq('id', id);
+    await supabase.from('contas_pagar').update({ status: 'pago', data_pagamento: todayStr() }).eq('id', id);
     addToast('Conta marcada como paga!'); load();
   }
 
   async function markReceived(id) {
-    await supabase.from('contas_receber').update({ status: 'recebido', data_recebimento: new Date().toISOString().split('T')[0] }).eq('id', id);
+    await supabase.from('contas_receber').update({ status: 'recebido', data_recebimento: todayStr() }).eq('id', id);
     addToast('Recebimento confirmado!'); load();
   }
 

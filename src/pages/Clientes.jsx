@@ -5,6 +5,7 @@ import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { Plus, Search, Edit2, Trash2, Users, Phone, Mail, X, FileText } from 'lucide-react';
 import FichaClienteModal from '../components/FichaClienteModal';
 import { maskCPF, maskCNPJ, maskPhone } from '../lib/money';
+import { logActivity } from '../lib/activityLogger';
 
 export default function Clientes() {
   const { addToast } = useToast();
@@ -65,11 +66,13 @@ export default function Clientes() {
     if (editing) {
       const { error } = await supabase.from('clientes').update(payload).eq('id', editing.id);
       if (error) return addToast('Erro ao atualizar: ' + error.message, 'error');
+      logActivity('UPDATE', 'cliente', editing.id, `Cliente ${payload.nome}`);
       addToast('Cliente atualizado com sucesso!');
     } else {
       // Código gerado automaticamente pelo trigger do banco
-      const { error } = await supabase.from('clientes').insert(payload);
+      const { data: newClient, error } = await supabase.from('clientes').insert(payload).select().single();
       if (error) return addToast('Erro ao cadastrar: ' + error.message, 'error');
+      logActivity('CREATE', 'cliente', newClient?.id, `Cliente ${payload.nome}`);
       addToast('Cliente cadastrado com sucesso!');
     }
 
@@ -81,6 +84,7 @@ export default function Clientes() {
     if (!confirm('Tem certeza que deseja excluir este cliente?')) return;
     const { error } = await supabase.from('clientes').update({ is_deleted: true, updated_at: new Date().toISOString() }).eq('id', id);
     if (error) return addToast('Erro ao excluir: ' + error.message, 'error');
+    logActivity('DELETE', 'cliente', id, `Cliente Excluído`);
     addToast('Cliente excluído.');
     loadClientes();
   }
