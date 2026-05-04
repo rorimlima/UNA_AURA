@@ -120,41 +120,43 @@
 
 /* ─── TEMA CLARO ─── */
 [data-theme="light"] {
-  --color-bg-primary: #FAFAF7;
-  --color-bg-secondary: #FFFFFF;
-  --color-bg-tertiary: #F5F3EE;
-  --color-bg-card: #FFFFFF;
-  --color-bg-hover: #F0EDE6;
+  /* Softer, more comfortable backgrounds */
+  --color-bg-primary: #F4F4F1;
+  --color-bg-secondary: #FDFDFB;
+  --color-bg-tertiary: #EBEBE6;
+  --color-bg-card: #FDFDFB;
+  --color-bg-hover: #E9E9E4;
   --color-bg-elevated: #FFFFFF;
 
-  --color-surface: rgba(255, 255, 255, 0.9);
-  --color-glass: rgba(0, 0, 0, 0.03);
-  --color-glass-border: rgba(0, 0, 0, 0.08);
-  --color-glass-hover: rgba(0, 0, 0, 0.05);
+  --color-surface: rgba(253, 253, 251, 0.95);
+  --color-glass: rgba(0, 0, 0, 0.04);
+  --color-glass-border: rgba(0, 0, 0, 0.12);
+  --color-glass-hover: rgba(0, 0, 0, 0.07);
 
-  --color-text-primary: #1A1A2E;
-  --color-text-secondary: #5A5670;
-  --color-text-muted: #9490A5;
+  /* Stronger, higher-contrast text */
+  --color-text-primary: #12121A;   /* Near black */
+  --color-text-secondary: #3B384A; /* Very dark slate */
+  --color-text-muted: #625E75;     /* Darker muted text for readability */
 
-  --gradient-card: linear-gradient(145deg, rgba(255,255,255,0.95) 0%, rgba(250,248,243,0.8) 100%);
-  --gradient-dark: linear-gradient(180deg, #FAFAF7 0%, #F5F3EE 100%);
+  --gradient-card: linear-gradient(145deg, rgba(253,253,251,0.98) 0%, rgba(246,246,242,0.85) 100%);
+  --gradient-dark: linear-gradient(180deg, #F4F4F1 0%, #EBEBE6 100%);
 
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
-  --shadow-lg: 0 8px 32px rgba(0,0,0,0.1);
-  --shadow-xl: 0 16px 48px rgba(0,0,0,0.12);
-  --shadow-gold: 0 4px 24px rgba(201,169,110,0.12);
-  --shadow-gold-lg: 0 8px 40px rgba(201,169,110,0.18);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
+  --shadow-xl: 0 16px 48px rgba(0,0,0,0.15);
+  --shadow-gold: 0 4px 24px rgba(201,169,110,0.15);
+  --shadow-gold-lg: 0 8px 40px rgba(201,169,110,0.22);
 }
 
 [data-theme="light"] .form-select {
-  background-color: #FFFFFF;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235A5670' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-color: #FDFDFB;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%233B384A' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
 [data-theme="light"] .form-input {
-  background: rgba(0, 0, 0, 0.02);
-  border-color: rgba(0, 0, 0, 0.12);
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.15);
 }
 
 [data-theme="light"] .form-input:focus {
