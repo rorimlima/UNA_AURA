@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
-import { Plus, Search, Receipt, X, Trash2, Printer, CheckCircle, DollarSign, TrendingUp } from 'lucide-react';
+import { Plus, Search, Receipt, X, Trash2, Printer, CheckCircle, DollarSign, TrendingUp, Eye, Edit3, MoreVertical } from 'lucide-react';
 import { formatMoney, toCents, toReal, toLocalDateStr, todayStr } from '../lib/money';
 import { logActivity } from '../lib/activityLogger';
 
@@ -162,6 +163,7 @@ function imprimirRecibo(venda, empresa) {
 
 export default function Vendas() {
   const { addToast } = useToast();
+  const { isAdmin } = useAuth();
   const [vendas, setVendas] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [produtos, setProdutos] = useState([]);
@@ -187,6 +189,66 @@ export default function Vendas() {
   const [prodSearches, setProdSearches] = useState({});
   const [prodDropdowns, setProdDropdowns] = useState({});
   const searchTimers = useRef({});
+
+  // ─── Row Actions State ─────────────────────────────────────────────
+  const [detailVenda, setDetailVenda] = useState(null);   // Modal Visualizar
+  const [detailParcelas, setDetailParcelas] = useState([]);
+  const [editVenda, setEditVenda] = useState(null);        // Modal Editar
+  const [editForm, setEditForm] = useState({});
+  const [openMenuId, setOpenMenuId] = useState(null);      // Dropdown menu
+
+  // ─── Row Action Handlers ───────────────────────────────────────────
+  async function handleViewDetail(v) {
+    const { data: parcelas } = await supabase.from('contas_receber').select('*').eq('venda_id', v.id);
+    setDetailParcelas(parcelas || []);
+    setDetailVenda(v);
+    setOpenMenuId(null);
+  }
+
+  function handleEdit(v) {
+    // Check if any payment is confirmed
+    const hasConfirmed = (v._parcelas || []).some(p => p.status === 'recebido' || p.status === 'confirmado');
+    if (hasConfirmed || v.status === 'confirmada') {
+      return addToast('Não é possível editar: pagamento já confirmado.', 'error');
+    }
+    setEditForm({ observacoes: v.observacoes || '', vendedor_id: v.vendedor_id || '' });
+    setEditVenda(v);
+    setOpenMenuId(null);
+  }
+
+  async function handleSaveEdit(e) {
+    e.preventDefault();
+    const { error } = await supabase.from('vendas').update({
+      observacoes: editForm.observacoes,
+      vendedor_id: editForm.vendedor_id || null,
+    }).eq('id', editVenda.id);
+    if (error) return addToast('Erro ao atualizar: ' + error.message, 'error');
+    logActivity('UPDATE', 'venda', editVenda.id, `Editou venda #${editVenda.numero_pedido || editVenda.id.substring(0,8)}`);
+    addToast('Venda atualizada!');
+    setEditVenda(null);
+    load();
+  }
+
+  async function handleDelete(v) {
+    if (!isAdmin) return addToast('Apenas administradores podem excluir vendas.', 'error');
+    if (!confirm(`Tem certeza que deseja excluir a venda #${v.numero_pedido || v.id.substring(0,8)}? Esta ação não pode ser desfeita.`)) return;
+    // Soft delete: mark as deleted
+    const { error } = await supabase.from('vendas').update({ is_deleted: true }).eq('id', v.id);
+    if (error) return addToast('Erro ao excluir: ' + error.message, 'error');
+    // Also soft-delete related items
+    await supabase.from('vendas_itens').update({ is_deleted: true }).eq('venda_id', v.id);
+    await supabase.from('contas_receber').update({ is_deleted: true }).eq('venda_id', v.id);
+    logActivity('DELETE', 'venda', v.id, `Excluiu venda #${v.numero_pedido || v.id.substring(0,8)}`, { total: v.total });
+    addToast('Venda excluída com sucesso!');
+    setOpenMenuId(null);
+    load();
+  }
+
+  async function handlePrint(v) {
+    const { data: cRec } = await supabase.from('contas_receber').select('*').eq('venda_id', v.id);
+    imprimirRecibo({ ...v, _parcelas: cRec || [] }, empresa);
+    setOpenMenuId(null);
+  }
 
   // Close client dropdown on outside click
   useEffect(() => {
@@ -490,12 +552,12 @@ export default function Vendas() {
                   <td style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-success)', textAlign: 'right' }}>{fmt(v.total)}</td>
                   <td><span className={`badge ${v.status === 'finalizada' ? 'badge-success' : 'badge-warning'}`}>{v.status}</span></td>
                   <td>
-                    <button className="btn btn-sm" title="Gerar Recibo" style={{ background: 'rgba(201,169,110,0.1)', color: 'var(--color-gold)', border: '1px solid rgba(201,169,110,0.2)', gap: '4px', fontWeight: 600 }} onClick={async () => {
-                      const { data: cRec } = await supabase.from('contas_receber').select('*').eq('venda_id', v.id);
-                      imprimirRecibo({ ...v, _parcelas: cRec || [] }, empresa);
-                    }}>
-                      <Printer size={13} /> Recibo
-                    </button>
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <button className="btn btn-ghost btn-icon btn-sm" title="Visualizar" onClick={() => handleViewDetail(v)} style={{ color: 'var(--color-info)' }}><Eye size={15} /></button>
+                      <button className="btn btn-ghost btn-icon btn-sm" title="Editar" onClick={() => handleEdit(v)} style={{ color: 'var(--color-gold)' }}><Edit3 size={15} /></button>
+                      <button className="btn btn-ghost btn-icon btn-sm" title="Imprimir Recibo" onClick={() => handlePrint(v)} style={{ color: 'var(--color-success)' }}><Printer size={15} /></button>
+                      {isAdmin && <button className="btn btn-ghost btn-icon btn-sm" title="Excluir" onClick={() => handleDelete(v)} style={{ color: 'var(--color-danger)' }}><Trash2 size={15} /></button>}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -709,6 +771,116 @@ export default function Vendas() {
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowNovoProduto(false)}>Cancelar</button>
                 <button type="submit" className="btn btn-primary">Salvar Produto</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══════ MODAL: Visualizar Detalhes (Somente Leitura) ══════ */}
+      {detailVenda && (
+        <div className="modal-backdrop" onClick={() => setDetailVenda(null)}>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxWidth: 780 }}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Eye size={20} style={{ color: 'var(--color-info)' }} /> Detalhes da Venda</h3>
+              <button className="btn btn-ghost btn-icon" onClick={() => setDetailVenda(null)}><X size={20} /></button>
+            </div>
+            <div className="modal-body">
+              {/* Info Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-4)', marginBottom: 'var(--space-6)', padding: 'var(--space-4)', background: 'var(--color-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-glass-border)' }}>
+                <div><div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-gold)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Nº Pedido</div><div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 'var(--text-lg)' }}>{detailVenda.numero_pedido || detailVenda.id?.substring(0,8)}</div></div>
+                <div><div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-gold)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Data</div><div style={{ fontWeight: 600 }}>{new Date(detailVenda.data).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}</div></div>
+                <div><div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-gold)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Status</div><span className={`badge ${detailVenda.status === 'finalizada' ? 'badge-success' : 'badge-warning'}`}>{detailVenda.status}</span></div>
+                <div><div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-gold)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Cliente</div><div style={{ fontWeight: 500 }}>{detailVenda.clientes?.nome || 'Consumidor Final'}</div></div>
+                <div><div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-gold)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Vendedor</div><div>{detailVenda.vendedores?.nome || '—'}</div></div>
+                <div><div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-gold)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Pagamento</div><div>{fmtPag[detailVenda.forma_pagamento] || detailVenda.forma_pagamento || '—'}</div></div>
+              </div>
+
+              {/* Itens */}
+              <h4 style={{ fontFamily: 'var(--font-display)', marginBottom: 'var(--space-3)', display: 'flex', alignItems: 'center', gap: 6 }}><Receipt size={16} /> Itens da Venda</h4>
+              <table className="data-table" style={{ marginBottom: 'var(--space-4)' }}>
+                <thead><tr><th>Ref.</th><th>Produto</th><th style={{ textAlign: 'center' }}>Qtd</th><th style={{ textAlign: 'right' }}>Unitário</th><th style={{ textAlign: 'right' }}>Subtotal</th></tr></thead>
+                <tbody>
+                  {(detailVenda.vendas_itens || []).map((item, i) => (
+                    <tr key={i}>
+                      <td style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-gold)', fontSize: 12 }}>{item.produtos?.referencia || '—'}</td>
+                      <td>{item.produtos?.nome || '—'}</td>
+                      <td style={{ textAlign: 'center' }}>{item.quantidade}</td>
+                      <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>{fmt(item.valor_unitario)}</td>
+                      <td style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: 600 }}>{fmt(item.quantidade * item.valor_unitario)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 'var(--space-3) var(--space-4)', background: 'rgba(74,222,128,0.08)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--space-4)' }}>
+                <span style={{ fontSize: 'var(--text-xl)', fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-success)' }}>Total: {fmt(detailVenda.total)}</span>
+              </div>
+
+              {/* Parcelas / Pagamento */}
+              {detailParcelas.length > 0 && (
+                <>
+                  <h4 style={{ fontFamily: 'var(--font-display)', marginBottom: 'var(--space-3)', display: 'flex', alignItems: 'center', gap: 6 }}><DollarSign size={16} /> Parcelas / Status do Pagamento</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                    {detailParcelas.map((p, i) => (
+                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-3) var(--space-4)', background: 'var(--color-glass)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-glass-border)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ background: 'var(--color-gold)', color: '#FFF', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>{p.parcela}/{p.total_parcelas}</span>
+                          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>{fmtPag[p.forma_pagamento] || p.forma_pagamento}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+                          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>Venc: {p.data_vencimento ? new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}</span>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{fmt(p.valor)}</span>
+                          <span className={`badge ${p.status === 'recebido' ? 'badge-success' : p.status === 'vencido' ? 'badge-danger' : 'badge-warning'}`}>{p.status}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {detailVenda.observacoes && (
+                <div style={{ marginTop: 'var(--space-4)', padding: 'var(--space-3) var(--space-4)', background: 'rgba(201,169,110,0.06)', borderLeft: '3px solid var(--color-gold)', borderRadius: '0 var(--radius-md) var(--radius-md) 0' }}>
+                  <strong style={{ color: 'var(--color-gold)', fontSize: 'var(--text-xs)', textTransform: 'uppercase' }}>Observações:</strong>
+                  <div style={{ marginTop: 4, fontSize: 'var(--text-sm)' }}>{detailVenda.observacoes}</div>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => handlePrint(detailVenda)}><Printer size={14} /> Imprimir Recibo</button>
+              <button className="btn btn-primary" onClick={() => setDetailVenda(null)}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════ MODAL: Editar Venda ══════ */}
+      {editVenda && (
+        <div className="modal-backdrop" onClick={() => setEditVenda(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 500 }}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Edit3 size={18} style={{ color: 'var(--color-gold)' }} /> Editar Venda #{editVenda.numero_pedido || editVenda.id?.substring(0,8)}</h3>
+              <button className="btn btn-ghost btn-icon" onClick={() => setEditVenda(null)}><X size={20} /></button>
+            </div>
+            <form onSubmit={handleSaveEdit}>
+              <div className="modal-body">
+                <div style={{ padding: 'var(--space-3)', background: 'var(--color-info-bg)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--space-4)', fontSize: 'var(--text-sm)', color: 'var(--color-info)' }}>
+                  ℹ️ Edição limitada: itens e valores não podem ser alterados após a finalização. Apenas vendedor e observações.
+                </div>
+                <div className="form-group" style={{ marginBottom: 'var(--space-4)' }}>
+                  <label className="form-label">Vendedor</label>
+                  <select className="form-select" value={editForm.vendedor_id} onChange={e => setEditForm({ ...editForm, vendedor_id: e.target.value })}>
+                    <option value="">Sem vendedor</option>
+                    {vendedores.map(v => <option key={v.id} value={v.id}>{v.nome}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Observações</label>
+                  <input className="form-input" value={editForm.observacoes} onChange={e => setEditForm({ ...editForm, observacoes: e.target.value })} placeholder="Observações..." />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setEditVenda(null)}>Cancelar</button>
+                <button type="submit" className="btn btn-primary">Salvar Alterações</button>
               </div>
             </form>
           </div>
