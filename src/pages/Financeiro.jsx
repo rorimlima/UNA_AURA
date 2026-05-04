@@ -32,8 +32,8 @@ export default function Financeiro() {
 
   async function load() {
     const [{ data: cp }, { data: cr }, { data: cf }, { data: forn }, { data: taxas }] = await Promise.all([
-      supabase.from('contas_pagar').select('id, descricao, categoria, valor, valor_taxa, data_vencimento, data_pagamento, forma_pagamento, status, status_lancamento, conta_origem_id, fornecedor_id, fornecedores(nome), conta_origem:contas_financeiras!conta_origem_id(nome)').or('is_deleted.is.null,is_deleted.eq.false').order('data_vencimento'),
-      supabase.from('contas_receber').select('id, descricao, valor, valor_taxa, parcela, total_parcelas, data_vencimento, data_recebimento, forma_pagamento, status, status_lancamento, conta_destino_id, cliente_id, venda_id, clientes(nome), conta_destino:contas_financeiras!conta_destino_id(nome)').or('is_deleted.is.null,is_deleted.eq.false').order('data_vencimento'),
+      supabase.from('contas_pagar').select('id, descricao, categoria, valor, data_vencimento, data_pagamento, forma_pagamento, status, status_lancamento, conta_origem_id, fornecedor_id, fornecedores(nome), conta_origem:contas_financeiras!conta_origem_id(nome)').or('is_deleted.is.null,is_deleted.eq.false').order('data_vencimento'),
+      supabase.from('contas_receber').select('id, descricao, valor, parcela, total_parcelas, data_vencimento, data_recebimento, forma_pagamento, status, status_lancamento, conta_destino_id, cliente_id, venda_id, clientes(nome), conta_destino:contas_financeiras!conta_destino_id(nome)').or('is_deleted.is.null,is_deleted.eq.false').order('data_vencimento'),
       supabase.from('contas_financeiras').select('id, nome, tipo, banco, saldo_atual, saldo_inicial').eq('ativa', true).order('nome'),
       supabase.from('fornecedores').select('id, nome').order('nome'),
       supabase.from('configuracao_taxas').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('forma_pagamento'),

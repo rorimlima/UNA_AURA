@@ -205,26 +205,119 @@ export default function Vendas() {
     setOpenMenuId(null);
   }
 
-  function handleEdit(v) {
-    // Check if any payment is confirmed
-    const hasConfirmed = (v._parcelas || []).some(p => p.status === 'recebido' || p.status === 'confirmado');
-    if (hasConfirmed || v.status === 'confirmada') {
-      return addToast('Não é possível editar: pagamento já confirmado.', 'error');
-    }
-    setEditForm({ observacoes: v.observacoes || '', vendedor_id: v.vendedor_id || '' });
+  async function handleEdit(v) {
+    // Load full sale data (items + parcelas)
+    const [{ data: itens }, { data: parcelas }] = await Promise.all([
+      supabase.from('vendas_itens').select('id, produto_id, quantidade, valor_unitario, produtos(nome, referencia)').eq('venda_id', v.id),
+      supabase.from('contas_receber').select('*').eq('venda_id', v.id),
+    ]);
+    const hasConfirmed = (parcelas || []).some(p => p.status === 'recebido' || p.status === 'confirmado');
+    
+    setEditForm({
+      cliente_id: v.cliente_id || '',
+      vendedor_id: v.vendedor_id || '',
+      data: v.data || todayStr(),
+      observacoes: v.observacoes || '',
+      numero_pedido: v.numero_pedido || '',
+      _hasConfirmed: hasConfirmed,
+    });
+    // Populate edit cart
+    const editItems = (itens || []).map(i => ({
+      produto_id: i.produto_id,
+      quantidade: i.quantidade,
+      valor_unitario: i.valor_unitario,
+      _nome: i.produtos ? `${i.produtos.referencia || ''} ${i.produtos.nome}`.trim() : '',
+    }));
+    setEditCart(editItems.length > 0 ? editItems : [{ produto_id: '', quantidade: 1, valor_unitario: 0, _nome: '' }]);
+    
+    // Reconstruct pagamentos from parcelas grouped by forma_pagamento
+    const pagMap = {};
+    (parcelas || []).forEach(p => {
+      const key = p.forma_pagamento || 'pix';
+      if (!pagMap[key]) pagMap[key] = { forma_pagamento: key, valor: 0, parcelas: 0, primeiro_vencimento: p.data_vencimento };
+      pagMap[key].valor += p.valor;
+      pagMap[key].parcelas = Math.max(pagMap[key].parcelas, p.total_parcelas || 1);
+      if (p.data_vencimento < pagMap[key].primeiro_vencimento) pagMap[key].primeiro_vencimento = p.data_vencimento;
+    });
+    const editPags = Object.values(pagMap).map((p, i) => ({ ...p, id: Date.now() + i }));
+    setEditPagamentos(editPags.length > 0 ? editPags : []);
+    
     setEditVenda(v);
     setOpenMenuId(null);
   }
 
+  // Edit cart & pagamentos state
+  const [editCart, setEditCart] = useState([]);
+  const [editPagamentos, setEditPagamentos] = useState([]);
+
+  const editCartTotal = editCart.reduce((s, i) => s + (i.quantidade * i.valor_unitario), 0);
+  const editPagTotal = editPagamentos.reduce((s, p) => s + (p.valor || 0), 0);
+
+  function addEditCartItem() { setEditCart([...editCart, { produto_id: '', quantidade: 1, valor_unitario: 0, _nome: '' }]); }
+  function updateEditCartItem(idx, field, value) {
+    const items = [...editCart]; items[idx][field] = value;
+    if (field === 'produto_id') {
+      const prod = produtos.find(p => p.id === value);
+      if (prod) { items[idx].valor_unitario = prod.preco_venda || 0; items[idx]._nome = `${prod.referencia || ''} ${prod.nome}`.trim(); }
+    }
+    setEditCart(items);
+  }
+  function removeEditCartItem(idx) { setEditCart(editCart.filter((_, i) => i !== idx)); }
+  function addEditPag() {
+    const rem = Math.max(0, editCartTotal - editPagTotal);
+    setEditPagamentos([...editPagamentos, { id: Date.now(), forma_pagamento: 'pix', valor: rem, parcelas: 1, primeiro_vencimento: editForm.data || todayStr() }]);
+  }
+  function updateEditPag(idx, field, value) { const p = [...editPagamentos]; p[idx][field] = value; setEditPagamentos(p); }
+  function removeEditPag(idx) { setEditPagamentos(editPagamentos.filter((_, i) => i !== idx)); }
+
   async function handleSaveEdit(e) {
     e.preventDefault();
+    if (editCart.length === 0 || editCart.some(i => !i.produto_id)) return addToast('Adicione e selecione todos os produtos', 'error');
+    if (editPagamentos.length === 0) return addToast('Adicione ao menos uma forma de pagamento', 'error');
+    if (editPagTotal !== editCartTotal) return addToast(`Soma pagamentos (${fmt(editPagTotal)}) ≠ total (${fmt(editCartTotal)})`, 'error');
+
+    const vendaId = editVenda.id;
+
+    // 1. Update venda header
     const { error } = await supabase.from('vendas').update({
-      observacoes: editForm.observacoes,
+      cliente_id: editForm.cliente_id || null,
       vendedor_id: editForm.vendedor_id || null,
-    }).eq('id', editVenda.id);
-    if (error) return addToast('Erro ao atualizar: ' + error.message, 'error');
-    logActivity('UPDATE', 'venda', editVenda.id, `Editou venda #${editVenda.numero_pedido || editVenda.id.substring(0,8)}`);
-    addToast('Venda atualizada!');
+      data: editForm.data,
+      observacoes: editForm.observacoes,
+      total: editCartTotal,
+      forma_pagamento: editPagamentos.length > 1 ? 'Múltiplo' : editPagamentos[0].forma_pagamento,
+    }).eq('id', vendaId);
+    if (error) return addToast('Erro: ' + error.message, 'error');
+
+    // 2. Replace items (delete old, insert new)
+    if (!editForm._hasConfirmed) {
+      await supabase.from('vendas_itens').delete().eq('venda_id', vendaId);
+      const itens = editCart.map(i => ({ venda_id: vendaId, produto_id: i.produto_id, quantidade: i.quantidade, valor_unitario: i.valor_unitario }));
+      await supabase.from('vendas_itens').insert(itens);
+    }
+
+    // 3. Recreate parcelas (delete pending ones, insert new)
+    await supabase.from('contas_receber').delete().eq('venda_id', vendaId).eq('status', 'pendente');
+    const parcelasGeradas = [];
+    for (const pag of editPagamentos) {
+      const numParcelas = parseInt(pag.parcelas) || 1;
+      const valorParcela = Math.round(pag.valor / numParcelas);
+      const baseVenc = new Date((pag.primeiro_vencimento || editForm.data) + 'T12:00:00');
+      for (let i = 0; i < numParcelas; i++) {
+        const venc = new Date(baseVenc); venc.setMonth(venc.getMonth() + i);
+        const valFinal = i === numParcelas - 1 ? pag.valor - (valorParcela * (numParcelas - 1)) : valorParcela;
+        parcelasGeradas.push({
+          venda_id: vendaId, cliente_id: editForm.cliente_id || null,
+          descricao: `Venda #${editForm.numero_pedido || vendaId.substring(0,8)} - ${fmtPag[pag.forma_pagamento] || pag.forma_pagamento}${numParcelas > 1 ? ` (${i+1}/${numParcelas})` : ''}`,
+          valor: valFinal, parcela: i + 1, total_parcelas: numParcelas,
+          data_vencimento: toLocalDateStr(venc), forma_pagamento: pag.forma_pagamento, status: 'pendente',
+        });
+      }
+    }
+    if (parcelasGeradas.length > 0) await supabase.from('contas_receber').insert(parcelasGeradas);
+
+    logActivity('UPDATE', 'venda', vendaId, `Editou venda #${editForm.numero_pedido || vendaId.substring(0,8)}`);
+    addToast('Venda atualizada com sucesso!');
     setEditVenda(null);
     load();
   }
@@ -853,34 +946,106 @@ export default function Vendas() {
         </div>
       )}
 
-      {/* ══════ MODAL: Editar Venda ══════ */}
+      {/* ══════ MODAL: Editar Venda Completa ══════ */}
       {editVenda && (
         <div className="modal-backdrop" onClick={() => setEditVenda(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 500 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 800, maxHeight: '90vh', overflow: 'auto' }}>
             <div className="modal-header">
-              <h3 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Edit3 size={18} style={{ color: 'var(--color-gold)' }} /> Editar Venda #{editVenda.numero_pedido || editVenda.id?.substring(0,8)}</h3>
+              <h3 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Edit3 size={18} style={{ color: 'var(--color-gold)' }} /> Editar Venda #{editForm.numero_pedido || editVenda.id?.substring(0,8)}</h3>
               <button className="btn btn-ghost btn-icon" onClick={() => setEditVenda(null)}><X size={20} /></button>
             </div>
             <form onSubmit={handleSaveEdit}>
               <div className="modal-body">
-                <div style={{ padding: 'var(--space-3)', background: 'var(--color-info-bg)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--space-4)', fontSize: 'var(--text-sm)', color: 'var(--color-info)' }}>
-                  ℹ️ Edição limitada: itens e valores não podem ser alterados após a finalização. Apenas vendedor e observações.
+                {editForm._hasConfirmed && (
+                  <div style={{ padding: 'var(--space-3)', background: 'rgba(255,193,7,0.1)', border: '1px solid rgba(255,193,7,0.3)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--space-4)', fontSize: 'var(--text-sm)', color: 'var(--color-warning)' }}>
+                    ⚠️ Pagamentos já confirmados. Os itens não serão alterados, mas as parcelas pendentes serão recriadas.
+                  </div>
+                )}
+
+                {/* Header Fields */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+                  <div className="form-group">
+                    <label className="form-label">Cliente</label>
+                    <select className="form-select" value={editForm.cliente_id} onChange={e => setEditForm({ ...editForm, cliente_id: e.target.value })}>
+                      <option value="">Sem cliente</option>
+                      {clientes.map(c => <option key={c.id} value={c.id}>{c.codigo ? c.codigo + ' ' : ''}{c.nome}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Vendedor</label>
+                    <select className="form-select" value={editForm.vendedor_id} onChange={e => setEditForm({ ...editForm, vendedor_id: e.target.value })}>
+                      <option value="">Sem vendedor</option>
+                      {vendedores.map(v => <option key={v.id} value={v.id}>{v.nome}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Data</label>
+                    <input type="date" className="form-input" value={editForm.data} onChange={e => setEditForm({ ...editForm, data: e.target.value })} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Observações</label>
+                    <input className="form-input" value={editForm.observacoes} onChange={e => setEditForm({ ...editForm, observacoes: e.target.value })} placeholder="Observações..." />
+                  </div>
                 </div>
-                <div className="form-group" style={{ marginBottom: 'var(--space-4)' }}>
-                  <label className="form-label">Vendedor</label>
-                  <select className="form-select" value={editForm.vendedor_id} onChange={e => setEditForm({ ...editForm, vendedor_id: e.target.value })}>
-                    <option value="">Sem vendedor</option>
-                    {vendedores.map(v => <option key={v.id} value={v.id}>{v.nome}</option>)}
-                  </select>
+
+                {/* ── Itens ── */}
+                <div style={{ marginBottom: 'var(--space-4)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+                    <label className="form-label" style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--color-gold)' }}>Itens da Venda</label>
+                    {!editForm._hasConfirmed && <button type="button" className="btn btn-secondary btn-sm" onClick={addEditCartItem}><Plus size={14} /> Item</button>}
+                  </div>
+                  {editCart.map((item, idx) => {
+                    const prod = produtos.find(p => p.id === item.produto_id);
+                    return (
+                      <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 100px 36px', gap: 'var(--space-2)', alignItems: 'center', marginBottom: 'var(--space-2)', padding: 'var(--space-2)', background: 'var(--color-glass)', borderRadius: 'var(--radius-sm)' }}>
+                        <select className="form-select" value={item.produto_id} onChange={e => updateEditCartItem(idx, 'produto_id', e.target.value)} disabled={editForm._hasConfirmed} style={{ fontSize: 'var(--text-sm)' }}>
+                          <option value="">Selecione...</option>
+                          {produtos.map(p => <option key={p.id} value={p.id}>{p.referencia ? p.referencia + ' ' : ''}{p.nome}</option>)}
+                        </select>
+                        <input type="number" min="1" className="form-input" value={item.quantidade} onChange={e => updateEditCartItem(idx, 'quantidade', parseInt(e.target.value) || 1)} disabled={editForm._hasConfirmed} style={{ textAlign: 'center', fontSize: 'var(--text-sm)' }} placeholder="Qtd" />
+                        <input type="number" step="0.01" min="0" className="form-input" value={toReal(item.valor_unitario)} onChange={e => updateEditCartItem(idx, 'valor_unitario', toCents(e.target.value))} disabled={editForm._hasConfirmed} style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 'var(--text-sm)' }} placeholder="R$" />
+                        {!editForm._hasConfirmed && editCart.length > 1 && (
+                          <button type="button" className="btn btn-ghost btn-icon" onClick={() => removeEditCartItem(idx)} style={{ color: 'var(--color-danger)', padding: 2 }}><Trash2 size={14} /></button>
+                        )}
+                        {editForm._hasConfirmed && <div />}
+                      </div>
+                    );
+                  })}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 'var(--space-2) 0', fontFamily: 'monospace', fontWeight: 700, fontSize: 'var(--text-lg)', color: 'var(--color-gold)' }}>
+                    Total: {fmt(editCartTotal)}
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Observações</label>
-                  <input className="form-input" value={editForm.observacoes} onChange={e => setEditForm({ ...editForm, observacoes: e.target.value })} placeholder="Observações..." />
+
+                {/* ── Pagamentos ── */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+                    <label className="form-label" style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--color-gold)' }}>Formas de Pagamento</label>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={addEditPag}><Plus size={14} /> Pagamento</button>
+                  </div>
+                  {editPagamentos.map((pag, idx) => (
+                    <div key={pag.id} style={{ display: 'grid', gridTemplateColumns: '1fr 100px 70px 120px 36px', gap: 'var(--space-2)', alignItems: 'center', marginBottom: 'var(--space-2)', padding: 'var(--space-2)', background: 'var(--color-glass)', borderRadius: 'var(--radius-sm)' }}>
+                      <select className="form-select" value={pag.forma_pagamento} onChange={e => updateEditPag(idx, 'forma_pagamento', e.target.value)} style={{ fontSize: 'var(--text-sm)' }}>
+                        <option value="pix">PIX</option><option value="dinheiro">Dinheiro</option><option value="credito">Crédito</option><option value="debito">Débito</option><option value="boleto">Boleto</option><option value="transferencia">Transferência</option><option value="cheque">Cheque</option><option value="crediario">Crediário</option>
+                      </select>
+                      <input type="number" step="0.01" min="0" className="form-input" value={toReal(pag.valor)} onChange={e => updateEditPag(idx, 'valor', toCents(e.target.value))} style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 'var(--text-sm)' }} placeholder="R$" />
+                      <input type="number" min="1" max="48" className="form-input" value={pag.parcelas} onChange={e => updateEditPag(idx, 'parcelas', parseInt(e.target.value) || 1)} style={{ textAlign: 'center', fontSize: 'var(--text-sm)' }} title="Parcelas" />
+                      <input type="date" className="form-input" value={pag.primeiro_vencimento} onChange={e => updateEditPag(idx, 'primeiro_vencimento', e.target.value)} style={{ fontSize: 'var(--text-xs)' }} title="1º Vencimento" />
+                      {editPagamentos.length > 1 && (
+                        <button type="button" className="btn btn-ghost btn-icon" onClick={() => removeEditPag(idx)} style={{ color: 'var(--color-danger)', padding: 2 }}><Trash2 size={14} /></button>
+                      )}
+                      {editPagamentos.length <= 1 && <div />}
+                    </div>
+                  ))}
+                  {editPagamentos.length > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 'var(--space-2) 0', fontFamily: 'monospace', fontWeight: 600, fontSize: 'var(--text-sm)', color: editPagTotal === editCartTotal ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                      Pagamentos: {fmt(editPagTotal)} {editPagTotal !== editCartTotal && `(falta ${fmt(Math.abs(editCartTotal - editPagTotal))})`}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setEditVenda(null)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary">Salvar Alterações</button>
+                <button type="submit" className="btn btn-primary" disabled={editPagTotal !== editCartTotal}>Salvar Alterações</button>
               </div>
             </form>
           </div>
