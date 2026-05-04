@@ -273,13 +273,14 @@ export default function Financeiro() {
       {tab === 'pagar' && (
         <div className="glass-card table-responsive">
           <table className="data-table">
-            <thead><tr><th>Descrição</th><th>Fornecedor</th><th>Forma</th><th>Categoria</th><th style={{textAlign:'right'}}>Valor</th><th style={{textAlign:'right'}}>Taxa</th><th style={{textAlign:'right'}}>Valor Pago</th><th>Venc.</th><th>Conta Origem</th><th>Lanç.</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th style={{ width: 40 }}></th><th>Descrição</th><th>Fornecedor</th><th>Forma</th><th>Categoria</th><th style={{textAlign:'right'}}>Valor</th><th style={{textAlign:'right'}}>Taxa</th><th style={{textAlign:'right'}}>Valor Pago</th><th>Venc.</th><th>Conta Origem</th><th>Lanç.</th><th>Status</th></tr></thead>
             <tbody>
               {filteredPagar.map(c => {
                 const taxa = c.valor_taxa || 0;
                 const valorPago = c.valor - taxa;
                 return (
                 <tr key={c.id}>
+                  <td style={{ paddingRight: 0 }}>{c.status === 'pendente' && <button className="btn btn-ghost btn-sm" onClick={() => markPaid(c.id)} style={{ color: 'var(--color-success)', padding: 'var(--space-1)', minHeight: 0, height: 'auto' }} title="Confirmar Pagamento"><Check size={18} /></button>}</td>
                   <td style={{ color: 'var(--color-text-primary)' }}>{c.descricao || '—'}</td>
                   <td>{c.fornecedores?.nome || '—'}</td>
                   <td><span className="badge badge-gold" style={{fontSize:'var(--text-xs)'}}>{fmtPagLabel[c.forma_pagamento] || c.forma_pagamento || '—'}</span></td>
@@ -298,7 +299,6 @@ export default function Financeiro() {
                   </td>
                   <td><span className={`badge ${c.status_lancamento === 'confirmado' ? 'badge-success' : 'badge-warning'}`}>{c.status_lancamento || 'pendente'}</span></td>
                   <td><span className={`badge ${c.status === 'pago' ? 'badge-success' : c.status === 'vencido' ? 'badge-danger' : 'badge-warning'}`}>{c.status}</span></td>
-                  <td>{c.status === 'pendente' && <button className="btn btn-ghost btn-sm" onClick={() => markPaid(c.id)} style={{ color: 'var(--color-success)' }}><Check size={14} /></button>}</td>
                 </tr>
                 );
               })}
@@ -312,13 +312,14 @@ export default function Financeiro() {
       {tab === 'receber' && (
         <div className="glass-card table-responsive">
           <table className="data-table">
-            <thead><tr><th>Descrição</th><th>Cliente</th><th>Forma</th><th>Parcela</th><th style={{textAlign:'right'}}>Valor</th><th style={{textAlign:'right'}}>Taxa</th><th style={{textAlign:'right'}}>Valor Recebido</th><th>Venc.</th><th>Conta Destino</th><th>Lanç.</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th style={{ width: 40 }}></th><th>Descrição</th><th>Cliente</th><th>Forma</th><th>Parcela</th><th style={{textAlign:'right'}}>Valor</th><th style={{textAlign:'right'}}>Taxa</th><th style={{textAlign:'right'}}>Valor Recebido</th><th>Venc.</th><th>Conta Destino</th><th>Lanç.</th><th>Status</th></tr></thead>
             <tbody>
               {filteredReceber.map(c => {
                 const taxa = c.valor_taxa || 0;
                 const valorRecebido = c.valor - taxa;
                 return (
                 <tr key={c.id}>
+                  <td style={{ paddingRight: 0 }}>{c.status === 'pendente' && <button className="btn btn-ghost btn-sm" onClick={() => markReceived(c.id)} style={{ color: 'var(--color-success)', padding: 'var(--space-1)', minHeight: 0, height: 'auto' }} title="Confirmar Recebimento"><Check size={18} /></button>}</td>
                   <td style={{ color: 'var(--color-text-primary)' }}>{c.descricao || '—'}</td>
                   <td>{c.clientes?.nome || '—'}</td>
                   <td><span className="badge badge-gold" style={{fontSize:'var(--text-xs)'}}>{fmtPagLabel[c.forma_pagamento] || c.forma_pagamento || '—'}</span></td>
@@ -337,7 +338,6 @@ export default function Financeiro() {
                   </td>
                   <td><span className={`badge ${c.status_lancamento === 'confirmado' ? 'badge-success' : 'badge-warning'}`}>{c.status_lancamento || 'pendente'}</span></td>
                   <td><span className={`badge ${c.status === 'recebido' ? 'badge-success' : c.status === 'vencido' ? 'badge-danger' : 'badge-warning'}`}>{c.status}</span></td>
-                  <td>{c.status === 'pendente' && <button className="btn btn-ghost btn-sm" onClick={() => markReceived(c.id)} style={{ color: 'var(--color-success)' }}><Check size={14} /></button>}</td>
                 </tr>
                 );
               })}
