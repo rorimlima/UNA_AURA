@@ -32,8 +32,8 @@ export default function Financeiro() {
 
   async function load() {
     const [{ data: cp }, { data: cr }, { data: cf }, { data: forn }, { data: taxas }] = await Promise.all([
-      supabase.from('contas_pagar').select('id, descricao, categoria, valor, data_vencimento, data_pagamento, forma_pagamento, status, status_lancamento, conta_origem_id, fornecedor_id, fornecedores(nome), conta_origem:contas_financeiras!conta_origem_id(nome)').or('is_deleted.is.null,is_deleted.eq.false').order('data_vencimento'),
-      supabase.from('contas_receber').select('id, descricao, valor, parcela, total_parcelas, data_vencimento, data_recebimento, forma_pagamento, status, status_lancamento, conta_destino_id, cliente_id, venda_id, clientes(nome), conta_destino:contas_financeiras!conta_destino_id(nome)').or('is_deleted.is.null,is_deleted.eq.false').order('data_vencimento'),
+      supabase.from('contas_pagar').select('id, descricao, categoria, valor, valor_taxa, data_vencimento, data_pagamento, forma_pagamento, status, status_lancamento, conta_origem_id, fornecedor_id, fornecedores(nome), conta_origem:contas_financeiras!conta_origem_id(nome)').or('is_deleted.is.null,is_deleted.eq.false').order('data_vencimento'),
+      supabase.from('contas_receber').select('id, descricao, valor, valor_taxa, parcela, total_parcelas, data_vencimento, data_recebimento, forma_pagamento, status, status_lancamento, conta_destino_id, cliente_id, venda_id, clientes(nome), conta_destino:contas_financeiras!conta_destino_id(nome)').or('is_deleted.is.null,is_deleted.eq.false').order('data_vencimento'),
       supabase.from('contas_financeiras').select('id, nome, tipo, banco, saldo_atual, saldo_inicial').eq('ativa', true).order('nome'),
       supabase.from('fornecedores').select('id, nome').order('nome'),
       supabase.from('configuracao_taxas').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('forma_pagamento'),
@@ -44,14 +44,40 @@ export default function Financeiro() {
   }
 
   async function markPaid(id) {
+    const conta = contasPagar.find(c => c.id === id);
+    if (!conta) return;
+    const taxa = conta.valor_taxa || 0;
+    const valorLiquido = conta.valor + taxa; // A Pagar: valor + taxa = total debitado
+    // Atualizar o status
     await supabase.from('contas_pagar').update({ status: 'pago', status_lancamento: 'confirmado', data_pagamento: todayStr() }).eq('id', id);
-    logActivity('UPDATE', 'contas_pagar', id, 'Confirmou pagamento');
+    // Debitar da conta financeira de origem (valor total = valor + taxa)
+    if (conta.conta_origem_id) {
+      const cfin = contasFin.find(cf => cf.id === conta.conta_origem_id);
+      if (cfin) {
+        const novoSaldo = (cfin.saldo_atual || 0) - valorLiquido;
+        await supabase.from('contas_financeiras').update({ saldo_atual: novoSaldo }).eq('id', conta.conta_origem_id);
+      }
+    }
+    logActivity('UPDATE', 'contas_pagar', id, `Confirmou pagamento — Valor: ${fmt(conta.valor)}, Taxa: ${fmt(taxa)}, Debitado: ${fmt(valorLiquido)}`);
     addToast('Conta paga e lançamento confirmado!'); load();
   }
 
   async function markReceived(id) {
+    const conta = contasReceber.find(c => c.id === id);
+    if (!conta) return;
+    const taxa = conta.valor_taxa || 0;
+    const valorLiquido = conta.valor - taxa; // A Receber: valor - taxa = valor líquido creditado
+    // Atualizar o status
     await supabase.from('contas_receber').update({ status: 'recebido', status_lancamento: 'confirmado', data_recebimento: todayStr() }).eq('id', id);
-    logActivity('UPDATE', 'contas_receber', id, 'Confirmou recebimento');
+    // Creditar na conta financeira de destino (valor líquido)
+    if (conta.conta_destino_id) {
+      const cfin = contasFin.find(cf => cf.id === conta.conta_destino_id);
+      if (cfin) {
+        const novoSaldo = (cfin.saldo_atual || 0) + valorLiquido;
+        await supabase.from('contas_financeiras').update({ saldo_atual: novoSaldo }).eq('id', conta.conta_destino_id);
+      }
+    }
+    logActivity('UPDATE', 'contas_receber', id, `Confirmou recebimento — Valor: ${fmt(conta.valor)}, Taxa: ${fmt(taxa)}, Creditado: ${fmt(valorLiquido)}`);
     addToast('Recebimento confirmado!'); load();
   }
 
@@ -65,16 +91,22 @@ export default function Financeiro() {
     addToast('Conta origem atualizada!'); load();
   }
 
-  // Handler: Atualizar valor_taxa inline
+  // Handler: Atualizar valor_taxa inline com feedback instantâneo
   async function updateTaxaReceber(id, valorTaxaReais) {
     const taxa = toCents(valorTaxaReais);
-    await supabase.from('contas_receber').update({ valor_taxa: taxa }).eq('id', id);
-    load();
+    // Optimistic update — atualiza o state local imediatamente
+    setContasReceber(prev => prev.map(c => c.id === id ? { ...c, valor_taxa: taxa } : c));
+    const { error } = await supabase.from('contas_receber').update({ valor_taxa: taxa }).eq('id', id);
+    if (error) { addToast('Erro ao salvar taxa: ' + error.message, 'error'); load(); return; }
+    addToast('Taxa atualizada!');
   }
   async function updateTaxaPagar(id, valorTaxaReais) {
     const taxa = toCents(valorTaxaReais);
-    await supabase.from('contas_pagar').update({ valor_taxa: taxa }).eq('id', id);
-    load();
+    // Optimistic update — atualiza o state local imediatamente
+    setContasPagar(prev => prev.map(c => c.id === id ? { ...c, valor_taxa: taxa } : c));
+    const { error } = await supabase.from('contas_pagar').update({ valor_taxa: taxa }).eq('id', id);
+    if (error) { addToast('Erro ao salvar taxa: ' + error.message, 'error'); load(); return; }
+    addToast('Taxa atualizada!');
   }
 
   async function saveConta(e) {
@@ -254,7 +286,7 @@ export default function Financeiro() {
                   <td><span className="badge badge-gold">{c.categoria}</span></td>
                   <td style={{ fontWeight: 600, color: 'var(--color-danger)', fontFamily: 'monospace', textAlign:'right' }}>{fmt(c.valor)}</td>
                   <td style={{textAlign:'right'}}>
-                    <input type="number" step="0.01" min="0" style={{ width: 80, padding: '3px 6px', fontSize: 'var(--text-xs)', fontFamily: 'monospace', background: 'var(--color-glass)', border: '1px solid var(--color-glass-border)', borderRadius: 'var(--radius-sm)', color: taxa > 0 ? 'var(--color-warning)' : 'var(--color-text-muted)', textAlign: 'right' }} defaultValue={toReal(taxa)} onBlur={e => { const v = parseFloat(e.target.value) || 0; if (toCents(v) !== taxa) updateTaxaPagar(c.id, v); }} />
+                    <input key={`pagar-taxa-${c.id}-${taxa}`} type="number" step="0.01" min="0" style={{ width: 80, padding: '3px 6px', fontSize: 'var(--text-xs)', fontFamily: 'monospace', background: 'var(--color-glass)', border: '1px solid var(--color-glass-border)', borderRadius: 'var(--radius-sm)', color: taxa > 0 ? 'var(--color-warning)' : 'var(--color-text-muted)', textAlign: 'right' }} defaultValue={toReal(taxa)} onBlur={e => { const v = parseFloat(e.target.value) || 0; if (toCents(v) !== taxa) updateTaxaPagar(c.id, v); }} />
                   </td>
                   <td style={{ fontWeight: 700, color: 'var(--color-success)', fontFamily: 'monospace', textAlign:'right' }}>{fmt(valorPago)}</td>
                   <td style={{fontSize:'var(--text-xs)'}}>{c.data_vencimento ? new Date(c.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR') : '—'}</td>
@@ -293,7 +325,7 @@ export default function Financeiro() {
                   <td>{c.parcela}/{c.total_parcelas}</td>
                   <td style={{ fontWeight: 600, color: 'var(--color-success)', fontFamily: 'monospace', textAlign:'right' }}>{fmt(c.valor)}</td>
                   <td style={{textAlign:'right'}}>
-                    <input type="number" step="0.01" min="0" style={{ width: 80, padding: '3px 6px', fontSize: 'var(--text-xs)', fontFamily: 'monospace', background: 'var(--color-glass)', border: '1px solid var(--color-glass-border)', borderRadius: 'var(--radius-sm)', color: taxa > 0 ? 'var(--color-warning)' : 'var(--color-text-muted)', textAlign: 'right' }} defaultValue={toReal(taxa)} onBlur={e => { const v = parseFloat(e.target.value) || 0; if (toCents(v) !== taxa) updateTaxaReceber(c.id, v); }} />
+                    <input key={`receber-taxa-${c.id}-${taxa}`} type="number" step="0.01" min="0" style={{ width: 80, padding: '3px 6px', fontSize: 'var(--text-xs)', fontFamily: 'monospace', background: 'var(--color-glass)', border: '1px solid var(--color-glass-border)', borderRadius: 'var(--radius-sm)', color: taxa > 0 ? 'var(--color-warning)' : 'var(--color-text-muted)', textAlign: 'right' }} defaultValue={toReal(taxa)} onBlur={e => { const v = parseFloat(e.target.value) || 0; if (toCents(v) !== taxa) updateTaxaReceber(c.id, v); }} />
                   </td>
                   <td style={{ fontWeight: 700, color: valorRecebido >= 0 ? 'var(--color-gold)' : 'var(--color-danger)', fontFamily: 'monospace', textAlign:'right', background: 'rgba(201,169,110,0.06)', borderRadius: 'var(--radius-sm)' }}>{fmt(valorRecebido)}</td>
                   <td style={{fontSize:'var(--text-xs)'}}>{c.data_vencimento ? new Date(c.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR') : '—'}</td>
