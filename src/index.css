@@ -866,20 +866,48 @@ textarea.form-input {
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--color-text-secondary);
-  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-md);
   transition: all var(--transition-fast);
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
+  white-space: nowrap;
 }
 
 .tab-btn:hover {
   color: var(--color-text-primary);
-  background: var(--color-glass);
+  background: var(--color-glass-hover);
 }
 
 .tab-btn.active {
   color: var(--color-gold);
-  border-bottom-color: var(--color-gold);
-  background: rgba(201, 169, 110, 0.05);
+  background: var(--color-glass);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--color-glass-border);
+}
+
+.tabs-wrapper {
+  display: flex;
+  gap: var(--space-1);
+  background: rgba(0, 0, 0, 0.1);
+  padding: var(--space-1);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+[data-theme="light"] .tabs-wrapper {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-responsive .data-table th, 
+.table-responsive .data-table td {
+  white-space: nowrap;
 }

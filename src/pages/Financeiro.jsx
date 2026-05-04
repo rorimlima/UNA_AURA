@@ -199,24 +199,26 @@ export default function Financeiro() {
         )}
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)', flexWrap: 'wrap' }}>
-        <button className={`btn ${tab === 'contas' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('contas')}><Wallet size={16} /> Contas</button>
-        <button className={`btn ${tab === 'pagar' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('pagar')}><ArrowUpCircle size={16} /> A Pagar</button>
-        <button className={`btn ${tab === 'receber' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('receber')}><ArrowDownCircle size={16} /> A Receber</button>
-        <button className={`btn ${tab === 'taxas' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('taxas')}><Settings size={16} /> Taxas</button>
-      </div>
-
-      <div className="glass-card" style={{ padding: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
-        <div style={{ position: 'relative' }}>
-          <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-          <input type="text" className="form-input" placeholder="Buscar..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: '40px' }} />
+      {/* Controls: Tabs & Search */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
+          <div className="tabs-wrapper">
+            <button className={`tab-btn ${tab === 'contas' ? 'active' : ''}`} onClick={() => setTab('contas')}><Wallet size={16} /> Contas</button>
+            <button className={`tab-btn ${tab === 'pagar' ? 'active' : ''}`} onClick={() => setTab('pagar')}><ArrowUpCircle size={16} /> A Pagar</button>
+            <button className={`tab-btn ${tab === 'receber' ? 'active' : ''}`} onClick={() => setTab('receber')}><ArrowDownCircle size={16} /> A Receber</button>
+            <button className={`tab-btn ${tab === 'taxas' ? 'active' : ''}`} onClick={() => setTab('taxas')}><Settings size={16} /> Taxas</button>
+          </div>
+          
+          <div style={{ position: 'relative', flexGrow: 1, maxWidth: 320 }}>
+            <Search size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+            <input type="text" className="form-input" placeholder="Buscar lançamentos..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: '44px', background: 'var(--color-glass)', borderRadius: 'var(--radius-full)' }} />
+          </div>
         </div>
       </div>
 
       {/* ── TAB: Contas Financeiras ── */}
       {tab === 'contas' && (
-        <div className="glass-card" style={{ overflow: 'auto' }}>
+        <div className="glass-card table-responsive">
           <table className="data-table">
             <thead><tr><th>Nome</th><th>Tipo</th><th>Banco</th><th style={{ textAlign: 'right' }}>Saldo Inicial</th><th style={{ textAlign: 'right' }}>Saldo Atual</th></tr></thead>
             <tbody>
@@ -237,7 +239,7 @@ export default function Financeiro() {
 
       {/* ── TAB: Contas a Pagar ── */}
       {tab === 'pagar' && (
-        <div className="glass-card" style={{ overflow: 'auto' }}>
+        <div className="glass-card table-responsive">
           <table className="data-table">
             <thead><tr><th>Descrição</th><th>Fornecedor</th><th>Forma</th><th>Categoria</th><th style={{textAlign:'right'}}>Valor</th><th style={{textAlign:'right'}}>Taxa</th><th style={{textAlign:'right'}}>Valor Pago</th><th>Venc.</th><th>Conta Origem</th><th>Lanç.</th><th>Status</th><th></th></tr></thead>
             <tbody>
@@ -276,7 +278,7 @@ export default function Financeiro() {
 
       {/* ── TAB: Contas a Receber ── */}
       {tab === 'receber' && (
-        <div className="glass-card" style={{ overflow: 'auto' }}>
+        <div className="glass-card table-responsive">
           <table className="data-table">
             <thead><tr><th>Descrição</th><th>Cliente</th><th>Forma</th><th>Parcela</th><th style={{textAlign:'right'}}>Valor</th><th style={{textAlign:'right'}}>Taxa</th><th style={{textAlign:'right'}}>Valor Recebido</th><th>Venc.</th><th>Conta Destino</th><th>Lanç.</th><th>Status</th><th></th></tr></thead>
             <tbody>
@@ -315,7 +317,7 @@ export default function Financeiro() {
 
       {/* ── TAB: Configuração de Taxas ── */}
       {tab === 'taxas' && (
-        <div className="glass-card" style={{ overflow: 'auto' }}>
+        <div className="glass-card table-responsive">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-4)', borderBottom: '1px solid var(--color-glass-border)' }}>
             <h4 style={{ fontFamily: 'var(--font-display)' }}>Configuração de Taxas por Forma de Pagamento</h4>
             <button className="btn btn-secondary btn-sm" onClick={() => { setTaxaForm({ forma_pagamento:'', percentual_taxa:'', prazo_recebimento_dias:'' }); setEditTaxaId(null); setShowTaxaModal(true); }}><Plus size={14} /> Nova Taxa</button>
@@ -372,7 +374,7 @@ export default function Financeiro() {
             </div>
             <form onSubmit={savePagar}>
               <div className="modal-body">
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
                   <div className="form-group" style={{ gridColumn: '1/-1' }}>
                     <label className="form-label">Descrição *</label>
                     <input className="form-input" placeholder="Ex: Aluguel, Energia, Fornecedor..." value={pagarForm.descricao} onChange={e => setPagarForm({ ...pagarForm, descricao: e.target.value })} required />
