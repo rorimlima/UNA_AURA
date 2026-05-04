@@ -35,12 +35,12 @@ export default function Inadimplencia() {
     setLoading(true);
     const hoje = todayStr();
 
-    // Busca contas em atraso (pendente + vencido) agrupadas por cliente
+    // Busca contas em atraso (pendente + vencido) OU crediário (mesmo não vencido)
     const { data: contas } = await supabase
       .from('contas_receber')
       .select('*, clientes(id, nome, telefone, email, cpf_cnpj)')
       .in('status', ['pendente', 'vencido'])
-      .lt('data_vencimento', hoje)
+      .or(`data_vencimento.lt.${hoje},forma_pagamento.eq.crediario`)
       .order('data_vencimento');
 
     // Busca logs de cobrança
@@ -72,8 +72,9 @@ export default function Inadimplencia() {
           maxAtraso: 0,
         };
       }
-      const atraso = Math.floor((new Date(hoje) - new Date(c.data_vencimento)) / (1000 * 60 * 60 * 24));
-      clienteMap[cid].contas.push({ ...c, diasAtraso: atraso });
+      const rawAtraso = Math.floor((new Date(hoje) - new Date(c.data_vencimento)) / (1000 * 60 * 60 * 24));
+      const atraso = Math.max(0, rawAtraso);
+      clienteMap[cid].contas.push({ ...c, diasAtraso: atraso, rawAtraso });
       clienteMap[cid].total += c.valor;
       clienteMap[cid].maxAtraso = Math.max(clienteMap[cid].maxAtraso, atraso);
     });
@@ -282,7 +283,7 @@ export default function Inadimplencia() {
                         <td>{c.parcela}/{c.total_parcelas}</td>
                         <td style={{ fontWeight: 600, color: 'var(--color-rose)' }}>{fmt(c.valor)}</td>
                         <td>{new Date(c.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}</td>
-                        <td><span className={`badge ${c.diasAtraso > 60 ? 'badge-danger' : c.diasAtraso > 30 ? 'badge-warning' : 'badge-info'}`}>{c.diasAtraso}d</span></td>
+                        <td><span className={`badge ${c.rawAtraso < 0 ? 'badge-success' : c.diasAtraso > 60 ? 'badge-danger' : c.diasAtraso > 30 ? 'badge-warning' : 'badge-info'}`}>{c.rawAtraso < 0 ? 'A vencer' : c.diasAtraso + 'd'}</span></td>
                         <td style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
                           {ultimoLog ? (
                             <span title={ultimoLog.observacao}>
