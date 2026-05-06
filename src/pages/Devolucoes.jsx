@@ -206,7 +206,11 @@ export default function Devolucoes() {
                     <label className="form-label">Compra de Origem (opcional)</label>
                     <select className="form-select" value={form.compra_id} onChange={e => loadItensFromCompra(e.target.value)} disabled={!form.fornecedor_id}>
                       <option value="">Sem referência</option>
-                      {comprasForn.map(c => <option key={c.id} value={c.id}>#{c.codigo} — {fmt(c.total)} — {c.numero_nota || 'S/N'}</option>)}
+                      {comprasForn.map(c => (
+                        <option key={c.id} value={c.id}>
+                          Nota: {c.numero_nota || 'S/N'} — Data: {new Date(c.data).toLocaleDateString('pt-BR')} — Valor: {fmt(c.total)} (Ref: #{c.codigo})
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div className="form-group"><label className="form-label">Data</label><input type="date" className="form-input" value={form.data} onChange={e => setForm({ ...form, data: e.target.value })} /></div>

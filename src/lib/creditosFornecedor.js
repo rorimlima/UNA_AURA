@@ -202,7 +202,6 @@ export async function getComprasFornecedor(fornecedorId) {
     .select('id, codigo, data, numero_nota, total, compras_itens(*, produtos(id, nome, referencia, custo_unitario))')
     .eq('fornecedor_id', fornecedorId)
     .eq('is_deleted', false)
-    .in('status', ['finalizada', 'PAGO'])
     .order('data', { ascending: false });
 
   if (error) throw error;
