@@ -23,6 +23,7 @@ import Conciliacao from './pages/Conciliacao';
 import Tutorial from './pages/Tutorial';
 import QA from './pages/QA';
 import Logs from './pages/Logs';
+import Devolucoes from './pages/Devolucoes';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -65,6 +66,7 @@ export default function App() {
               <Route path="vendas" element={<Vendas />} />
               <Route path="clientes" element={<Clientes />} />
               <Route path="fornecedores" element={<Fornecedores />} />
+              <Route path="devolucoes" element={<Devolucoes />} />
               <Route path="vendedores" element={<Vendedores />} />
               <Route path="financeiro" element={<Financeiro />} />
               <Route path="resultados" element={<Resultados />} />

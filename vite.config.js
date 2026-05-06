@@ -12,11 +12,17 @@ export default defineConfig({
         name: 'UNA AURA ERP',
         short_name: 'UNA AURA',
         description: 'Sistema de Gestão UNA AURA — Funciona Offline',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
+        theme_color: '#1a1a2e',
+        background_color: '#1a1a2e',
         display: 'standalone',
+        orientation: 'portrait',
         start_url: '/',
         scope: '/',
+        categories: ['business', 'productivity', 'finance'],
+        shortcuts: [
+          { name: 'Nova Venda', short_name: 'Venda', url: '/vendas', icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }] },
+          { name: 'Novo Cliente', short_name: 'Cliente', url: '/clientes', icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }] }
+        ],
         icons: [
           {
             src: 'pwa-192x192.png',

@@ -5,6 +5,7 @@ import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
 import { Plus, Search, ShoppingCart, X, Trash2, DollarSign, TrendingDown, Edit2, Eye, FileText, Package, CreditCard, Calendar, Hash } from 'lucide-react';
 import { formatMoney, toCents, toReal, toLocalDateStr, todayStr } from '../lib/money';
 import { logActivity } from '../lib/activityLogger';
+import { getSaldoCredito, aplicarCredito } from '../lib/creditosFornecedor';
 
 export default function Compras() {
   const { addToast } = useToast();
@@ -35,6 +36,10 @@ export default function Compras() {
   const [prodDropdowns, setProdDropdowns] = useState({}); // per-row dropdown visibility
   const searchTimers = useRef({});
   const savingRef = useRef(false);
+
+  // Crédito de Fornecedor
+  const [creditoDisponivel, setCreditoDisponivel] = useState(0);
+  const [usarCredito, setUsarCredito] = useState(false);
 
   // Smart supplier search
   const [fornSearch, setFornSearch] = useState('');
@@ -87,10 +92,18 @@ export default function Compras() {
     }
   }
 
-  function selectFornecedor(forn) {
+  async function selectFornecedor(forn) {
     setForm(prev => ({ ...prev, fornecedor_id: forn.id }));
     setFornSearch(`${forn.codigo ? forn.codigo + ' ' : ''}${forn.nome}`.trim());
     setShowFornDropdown(false);
+    try {
+      const saldo = await getSaldoCredito(forn.id);
+      setCreditoDisponivel(saldo || 0);
+      setUsarCredito(false);
+    } catch (err) {
+      console.error(err);
+      setCreditoDisponivel(0);
+    }
   }
 
   // Smart product search with debounce
@@ -153,10 +166,12 @@ export default function Compras() {
   function removeCartItem(idx) { setCart(cart.filter((_, i) => i !== idx)); }
 
   const cartTotal = cart.reduce((s, i) => s + (i.quantidade * i.valor_unitario), 0);
+  const creditoAplicado = usarCredito ? Math.min(cartTotal, creditoDisponivel) : 0;
+  const valorComCredito = usarCredito ? Math.max(0, cartTotal - creditoDisponivel) : cartTotal;
 
   function addPagamento() {
     const defaultData = form.data || todayStr();
-    const remanescente = Math.max(0, cartTotal - pagamentosTotal);
+    const remanescente = Math.max(0, valorComCredito - pagamentosTotal);
     const defaultForma = formasPagamento.length > 0 ? formasPagamento[0].nome : 'PIX';
     setPagamentos([...pagamentos, { id: Date.now(), forma_pagamento: defaultForma, valor: remanescente, parcelas: 1, primeiro_vencimento: defaultData }]);
   }
@@ -178,6 +193,8 @@ export default function Compras() {
     setFornSearchResults([]);
     setProdSearches({});
     setProdDropdowns({});
+    setCreditoDisponivel(0);
+    setUsarCredito(false);
     setShowModal(true);
   }
 
@@ -215,7 +232,7 @@ export default function Compras() {
     if (!form.fornecedor_id) { savingRef.current = false; return addToast('Selecione o fornecedor', 'error'); }
     if (cart.length === 0) { savingRef.current = false; return addToast('Adicione itens ao carrinho', 'error'); }
     if (cart.some(i => !i.produto_id)) { savingRef.current = false; return addToast('Selecione todos os produtos', 'error'); }
-    if (pagamentos.length > 0 && pagamentosTotal !== cartTotal) { savingRef.current = false; return addToast('A soma dos pagamentos não bate com o total da compra', 'error'); }
+    if (pagamentos.length > 0 && pagamentosTotal !== valorComCredito) { savingRef.current = false; return addToast('A soma dos pagamentos não bate com o valor restante', 'error'); }
     setSaving(true);
 
     // Ler o ID da compra diretamente do DOM (imune a stale closure)
@@ -224,7 +241,8 @@ export default function Compras() {
     try {
       // Determinar status
       let statusCompra = 'rascunho';
-      if (pagamentos.length > 0 && pagamentosTotal >= cartTotal) statusCompra = 'finalizada';
+      if (pagamentos.length > 0 && pagamentosTotal >= valorComCredito) statusCompra = 'finalizada';
+      if (usarCredito && valorComCredito === 0) statusCompra = 'finalizada'; // Integralmente pago com crédito
 
       let compraId;
       const compraPayload = {
@@ -293,6 +311,16 @@ export default function Compras() {
       if (parcelasGeradas.length > 0) {
         const { error: cpErr } = await supabase.from('contas_pagar').insert(parcelasGeradas);
         if (cpErr) addToast('Aviso: erro ao gerar contas: ' + cpErr.message, 'error');
+      }
+
+      // Consumir crédito se selecionado
+      if (usarCredito && creditoAplicado > 0) {
+        try {
+          await aplicarCredito(compraId, form.fornecedor_id, creditoAplicado);
+        } catch (e) {
+          console.error('Erro ao aplicar crédito:', e);
+          addToast('Aviso: falha ao debitar o crédito do fornecedor.', 'error');
+        }
       }
 
       try {
@@ -392,6 +420,8 @@ export default function Compras() {
     } else {
       setPagamentos([]);
     }
+    setCreditoDisponivel(0);
+    setUsarCredito(false);
     setShowModal(true);
   }
 
@@ -401,6 +431,8 @@ export default function Compras() {
     setCart([{ produto_id:'', quantidade:1, valor_unitario:0 }]);
     setPagamentos([]);
     setFornSearch('');
+    setCreditoDisponivel(0);
+    setUsarCredito(false);
     setShowModal(true);
   }
 
@@ -612,6 +644,22 @@ export default function Compras() {
                 </div>
                 {/* Pagamentos */}
                 <div style={{ marginBottom: 'var(--space-4)' }}>
+                  {creditoDisponivel > 0 && !editingCompra && (
+                    <div style={{ background: 'rgba(201,169,110,0.1)', border: '1px solid var(--color-gold)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)', marginBottom: 'var(--space-4)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                        <div style={{ background: 'var(--color-gold)', color: '#000', borderRadius: '50%', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><DollarSign size={18} /></div>
+                        <div>
+                          <h5 style={{ margin: 0, color: 'var(--color-gold)', fontSize: 'var(--text-sm)' }}>Crédito Disponível</h5>
+                          <p style={{ margin: 0, fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>Este fornecedor possui <strong>{fmt(creditoDisponivel)}</strong> em crédito de devoluções.</p>
+                        </div>
+                      </div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: 'rgba(255,255,255,0.05)', padding: '6px 12px', borderRadius: 'var(--radius-sm)' }}>
+                        <input type="checkbox" checked={usarCredito} onChange={e => setUsarCredito(e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--color-gold)' }} />
+                        <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>Usar Crédito</span>
+                      </label>
+                    </div>
+                  )}
+
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
                     <h4 style={{ fontFamily: 'var(--font-display)' }}>Pagamentos</h4>
                     <button type="button" className="btn btn-secondary btn-sm" onClick={addPagamento}><Plus size={14} /> Adicionar Pagamento</button>
@@ -647,12 +695,20 @@ export default function Compras() {
                   )}
                   
                   <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginTop: 'var(--space-4)', gap: 'var(--space-4)' }}>
+                    {usarCredito && (
+                      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-gold)' }}>
+                        Crédito Aplicado: <strong>- {fmt(creditoAplicado)}</strong>
+                      </div>
+                    )}
+                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
+                      Total a Pagar: <strong>{fmt(valorComCredito)}</strong>
+                    </div>
                     <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
                       Total Informado: <strong>{fmt(pagamentosTotal)}</strong>
                     </div>
-                    {pagamentosTotal !== cartTotal && (
+                    {pagamentosTotal !== valorComCredito && (
                       <div style={{ color: 'var(--color-danger)', fontSize: 'var(--text-sm)', fontWeight: 500 }}>
-                        Diferença de {fmt(Math.abs(cartTotal - pagamentosTotal))}
+                        Diferença de {fmt(Math.abs(valorComCredito - pagamentosTotal))}
                       </div>
                     )}
                   </div>
@@ -661,7 +717,7 @@ export default function Compras() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary" disabled={saving || cartTotal === 0 || (pagamentos.length > 0 && pagamentosTotal !== cartTotal)}>{saving ? <><div className="spinner" style={{width:16,height:16,marginRight:8}}/> Salvando...</> : editingCompra ? 'Salvar Alterações' : 'Finalizar Compra'}</button>
+                <button type="submit" className="btn btn-primary" disabled={saving || cartTotal === 0 || (pagamentos.length > 0 && pagamentosTotal !== valorComCredito)}>{saving ? <><div className="spinner" style={{width:16,height:16,marginRight:8}}/> Salvando...</> : editingCompra ? 'Salvar Alterações' : 'Finalizar Compra'}</button>
               </div>
             </form>
           </div>
