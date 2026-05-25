@@ -543,7 +543,7 @@ async function _executeRemote(table, operation, payload, recordId) {
  * Respeita o `nextRetryAt` para exponential backoff.
  */
 export async function processQueue() {
-  if (!navigator.onLine) return;
+  if (!await _isReallyOnline()) return;
 
   const ops = await db.getRetryableMutations();
   if (ops.length === 0) return;
@@ -574,6 +574,11 @@ export async function processQueue() {
       await db.dequeueMutation(op.key);
       processed++;
     } catch (err) {
+      // Se a internet caiu no meio da execução, interrompe o lote atual sem penalizar/incrementar retries
+      if (!await _isReallyOnline()) {
+        console.warn('[SyncEngine] Conectividade perdida durante execução de mutação. Abortando processamento da fila.');
+        break;
+      }
       console.error(`[SyncEngine] Retry falhou (${op.retries + 1}/${MAX_MUTATION_RETRIES}):`, err.message);
       await db.markMutationRetry(op.key, err);
       failed++;

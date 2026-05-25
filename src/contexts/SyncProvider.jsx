@@ -90,6 +90,8 @@ export function SyncProvider({ children }) {
       setLastSyncAt(new Date().toISOString());
       if (detail.failed > 0) {
         setSyncError(`${detail.failed}/${detail.total} tabelas com erro`);
+      } else {
+        setSyncError(null);
       }
     }));
 
