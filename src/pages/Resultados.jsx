@@ -8,23 +8,68 @@ export default function Resultados() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
+  const [dataInicial, setDataInicial] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  });
+  const [dataFinal, setDataFinal] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  });
   const [periodo, setPeriodo] = useState('mes');
 
-  useEffect(() => { load(); }, [periodo]);
+  function getTodayStr() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
+
+  function handlePeriodSelect(p) {
+    setPeriodo(p);
+    const now = new Date();
+    let start;
+    const end = getTodayStr();
+
+    if (p === 'mes') {
+      start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    } else if (p === 'trimestre') {
+      const d = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      start = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+    } else if (p === 'ano') {
+      start = `${now.getFullYear()}-01-01`;
+    }
+
+    if (start) {
+      setDataInicial(start);
+      setDataFinal(end);
+    }
+  }
+
+  function handleDateChange(type, val) {
+    setPeriodo('personalizado');
+    if (type === 'inicio') {
+      setDataInicial(val);
+    } else {
+      setDataFinal(val);
+    }
+  }
+
+  useEffect(() => {
+    if (dataInicial && dataFinal) {
+      load();
+    }
+  }, [dataInicial, dataFinal]);
 
   async function load() {
     setLoading(true);
-    const now = new Date();
-    let startDate;
-    if (periodo === 'mes') { startDate = new Date(now.getFullYear(), now.getMonth(), 1); }
-    else if (periodo === 'trimestre') { startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1); }
-    else { startDate = new Date(now.getFullYear(), 0, 1); }
+
+    const startIso = new Date(dataInicial + 'T00:00:00').toISOString();
+    const endIso = new Date(dataFinal + 'T23:59:59').toISOString();
 
     const [{ data: vendas }, { data: compras }, { data: cp }, { data: cr }, { data: produtos }] = await Promise.all([
-      supabase.from('vendas').select('*, vendas_itens(*)').gte('data', startDate.toISOString()),
-      supabase.from('compras').select('*, compras_itens(*)').gte('data', startDate.toISOString()),
-      supabase.from('contas_pagar').select('*').gte('created_at', startDate.toISOString()),
-      supabase.from('contas_receber').select('*').gte('created_at', startDate.toISOString()),
+      supabase.from('vendas').select('*, vendas_itens(*)').gte('data', dataInicial).lte('data', dataFinal),
+      supabase.from('compras').select('*, compras_itens(*)').gte('data', dataInicial).lte('data', dataFinal),
+      supabase.from('contas_pagar').select('*').gte('created_at', startIso).lte('created_at', endIso),
+      supabase.from('contas_receber').select('*').gte('created_at', startIso).lte('created_at', endIso),
       supabase.from('produtos').select('*').eq('ativo', true),
     ]);
 
@@ -78,12 +123,65 @@ export default function Resultados() {
     <div className="animate-fade-in">
       <div className="page-header">
         <div><h2 className="page-title">Resultado Financeiro</h2><p className="page-subtitle">Visão de consultoria do seu negócio</p></div>
-        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-          {['mes', 'trimestre', 'ano'].map(p => (
-            <button key={p} className={`btn ${periodo === p ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setPeriodo(p)}>
-              {p === 'mes' ? 'Mês' : p === 'trimestre' ? 'Trimestre' : 'Ano'}
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Botões de período */}
+          <div style={{ display: 'flex', gap: '4px', background: 'rgba(0, 0, 0, 0.2)', padding: '4px', borderRadius: '8px' }}>
+            {['mes', 'trimestre', 'ano', 'personalizado'].map(p => (
+              <button
+                key={p}
+                className={`btn ${periodo === p ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+                onClick={() => handlePeriodSelect(p)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  fontSize: 'var(--text-xs)',
+                  background: periodo === p ? 'var(--gradient-gold)' : 'transparent',
+                  color: periodo === p ? '#0D0D12' : 'var(--color-text-secondary)',
+                }}
+              >
+                {p === 'mes' ? 'Mês' : p === 'trimestre' ? 'Trimestre' : p === 'ano' ? 'Ano' : 'Personalizado'}
+              </button>
+            ))}
+          </div>
+
+          {/* Filtros de data */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontWeight: 500 }}>DE</span>
+              <input
+                type="date"
+                className="form-input"
+                value={dataInicial}
+                onChange={e => handleDateChange('inicio', e.target.value)}
+                style={{
+                  padding: '6px 10px',
+                  fontSize: 'var(--text-xs)',
+                  width: '135px',
+                  height: '32px',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  borderColor: 'var(--color-glass-border)',
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontWeight: 500 }}>ATÉ</span>
+              <input
+                type="date"
+                className="form-input"
+                value={dataFinal}
+                onChange={e => handleDateChange('fim', e.target.value)}
+                style={{
+                  padding: '6px 10px',
+                  fontSize: 'var(--text-xs)',
+                  width: '135px',
+                  height: '32px',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  borderColor: 'var(--color-glass-border)',
+                }}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
