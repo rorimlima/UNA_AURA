@@ -370,9 +370,11 @@ export default function Estoque() {
                           <thead style={{ background: 'var(--bg-surface-tertiary)' }}>
                             <tr>
                               <th>Fornecedor</th>
-                              <th style={{ textAlign: 'center' }}>Nota Fiscal</th>
-                              <th style={{ textAlign: 'right' }}>Valor Unitário</th>
                               <th style={{ textAlign: 'center' }}>Data</th>
+                              <th style={{ textAlign: 'center' }}>Nota Fiscal</th>
+                              <th style={{ textAlign: 'center' }}>Qtde</th>
+                              <th style={{ textAlign: 'right' }}>Valor Unit.</th>
+                              <th style={{ textAlign: 'right' }}>Total Compra</th>
                               <th style={{ textAlign: 'center' }}>Status</th>
                             </tr>
                           </thead>
@@ -380,12 +382,16 @@ export default function Estoque() {
                             {purchaseHistory.map(item => (
                               <tr key={item.id}>
                                 <td style={{ fontWeight: 500 }}>{item.fornecedor_nome}</td>
-                                <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>{item.numero_nota || 'S/N'}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-gold)' }}>
-                                  {fmt(item.valor_unitario)}
-                                </td>
                                 <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>
                                   {new Date(item.compra_data + 'T12:00:00').toLocaleDateString('pt-BR')}
+                                </td>
+                                <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>{item.numero_nota || 'S/N'}</td>
+                                <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>{item.quantidade}</td>
+                                <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>
+                                  {fmt(item.valor_unitario)}
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-gold)' }}>
+                                  {fmt(item.quantidade * item.valor_unitario)}
                                 </td>
                                 <td style={{ textAlign: 'center' }}>
                                   <span className={`badge ${item.compra_status === 'finalizada' ? 'badge-success' : 'badge-warning'}`}>
