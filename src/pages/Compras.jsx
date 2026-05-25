@@ -139,7 +139,7 @@ export default function Compras() {
 
   async function load() {
     const [{ data: c }, { data: f }, { data: p }, { data: fp }] = await Promise.all([
-      supabase.from('compras').select('*, fornecedores(nome), compras_itens(*, produtos(nome))').order('data', { ascending: false }),
+      supabase.from('compras').select('*, fornecedores(nome), compras_itens(*, produtos(nome, referencia, codigo))').order('data', { ascending: false }),
       supabase.from('fornecedores').select('id, nome, codigo, tipo, documento, telefone, email, status_financeiro').order('nome'),
       supabase.from('produtos').select('id, nome, codigo, referencia, custo_unitario').eq('ativo', true).order('nome'),
       supabase.from('formas_pagamento').select('*').eq('ativa', true).order('nome'),
@@ -463,6 +463,11 @@ export default function Compras() {
       (c.numero_nota || '').toLowerCase().includes(q) ||
       (c.numero_pedido || '').toLowerCase().includes(q) ||
       (c.status || '').toLowerCase().includes(q) ||
+      (c.compras_itens || []).some(item => 
+        (item.produtos?.nome || '').toLowerCase().includes(q) ||
+        (item.produtos?.referencia || '').toLowerCase().includes(q) ||
+        (item.produtos?.codigo || '').toLowerCase().includes(q)
+      ) ||
       fmt(c.total).includes(search);
   });
 
@@ -492,7 +497,7 @@ export default function Compras() {
       <div className="glass-card" style={{ padding: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
         <div style={{ position: 'relative' }}>
           <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-          <input type="text" className="form-input" placeholder="🔍 Buscar por fornecedor, nota, pedido, status ou valor..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: '40px' }} />
+          <input type="text" className="form-input" placeholder="🔍 Buscar por fornecedor, produto, referência, nota, pedido, status ou valor..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: '40px' }} />
         </div>
       </div>
 

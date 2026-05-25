@@ -3,7 +3,9 @@ import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
-import { Plus, Search, Receipt, X, Trash2, Printer, CheckCircle, DollarSign, TrendingUp, Eye, Edit3, MoreVertical } from 'lucide-react';
+import { Plus, Search, Receipt, X, Trash2, Printer, CheckCircle, DollarSign, TrendingUp, Eye, Edit3, MoreVertical, FileText } from 'lucide-react';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import { formatMoney, toCents, toReal, toLocalDateStr, todayStr } from '../lib/money';
 import { logActivity } from '../lib/activityLogger';
 
@@ -597,11 +599,83 @@ export default function Vendas() {
       (v.numero_pedido || '').toLowerCase().includes(q) ||
       (v.vendedores?.nome || '').toLowerCase().includes(q) ||
       (v.status || '').toLowerCase().includes(q) ||
+      (v.vendas_itens || []).some(item => 
+        (item.produtos?.nome || '').toLowerCase().includes(q) ||
+        (item.produtos?.referencia || '').toLowerCase().includes(q)
+      ) ||
       fmt(v.total).includes(search);
   });
 
   // KPIs comerciais
   const totalVendasGeral = vendas.reduce((s, v) => s + (v.total || 0), 0);
+
+  const exportarRelatorioPDF = () => {
+    const doc = new jsPDF('landscape');
+    
+    // Configurações do layout do PDF - Estilo Corporativo Elegante
+    doc.setFillColor(13, 13, 18);
+    doc.rect(0, 0, doc.internal.pageSize.width, 35, 'F');
+    
+    doc.setTextColor(201, 169, 110);
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.text('UNA AURA', 14, 22);
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "normal");
+    doc.text('Relatório de Vendas', 65, 22);
+    
+    doc.setTextColor(150, 150, 150);
+    doc.setFontSize(10);
+    doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, doc.internal.pageSize.width - 60, 22);
+
+    let y = 50;
+    doc.setTextColor(40, 40, 40);
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text('Resumo de Vendas', 14, y);
+    y += 10;
+    
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "normal");
+    
+    doc.text(`Total de Vendas: ${vendas.length}`, 14, y);
+    doc.text(`Faturamento: ${fmt(totalVendasGeral)}`, 90, y);
+    doc.text(`Ticket Médio: ${vendas.length > 0 ? fmt(Math.round(totalVendasGeral / vendas.length)) : 'R$ 0,00'}`, 170, y);
+    
+    y += 20;
+
+    const head = [['Data', 'Cliente', 'Vendedor', 'Pedido', 'Itens', 'Total', 'Status']];
+    const body = filtered.map(v => [
+      new Date(v.data).toLocaleDateString('pt-BR'),
+      v.clientes?.nome || 'Sem cliente',
+      v.vendedores?.nome || '—',
+      v.numero_pedido || '—',
+      v.vendas_itens?.length || 0,
+      fmt(v.total),
+      v.status
+    ]);
+
+    doc.autoTable({
+      startY: y,
+      head: head,
+      body: body,
+      theme: 'grid',
+      headStyles: { fillColor: [201, 169, 110], textColor: [255, 255, 255], fontStyle: 'bold' },
+      styles: { fontSize: 9, font: 'helvetica', cellPadding: 4 },
+      alternateRowStyles: { fillColor: [250, 250, 250] },
+      bodyStyles: { textColor: [60, 60, 60] }
+    });
+
+    const finalY = doc.lastAutoTable.finalY || y;
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text('Documento gerado pelo sistema UNA AURA.', 14, finalY + 10);
+
+    doc.save(`UNA_AURA_Vendas_${new Date().toISOString().split('T')[0]}.pdf`);
+    addToast('Relatório PDF exportado com sucesso!');
+  };
 
   if (loading) return <div className="dashboard-loading"><div className="spinner spinner-lg" /></div>;
 
@@ -609,9 +683,14 @@ export default function Vendas() {
     <div className="animate-fade-in">
       <div className="page-header">
         <div><h2 className="page-title">Vendas</h2><p className="page-subtitle">{vendas.length} vendas registradas</p></div>
-        <button className="btn btn-primary" onClick={openNew}>
-          <Plus size={18} /> Nova Venda
-        </button>
+        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" onClick={exportarRelatorioPDF} style={{ borderColor: 'var(--color-gold)', color: 'var(--color-gold)' }}>
+            <FileText size={18} /> Exportar PDF
+          </button>
+          <button className="btn btn-primary" onClick={openNew}>
+            <Plus size={18} /> Nova Venda
+          </button>
+        </div>
       </div>
 
       {/* KPIs de Vendas */}
@@ -624,7 +703,7 @@ export default function Vendas() {
       <div className="glass-card" style={{ padding: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
         <div style={{ position: 'relative' }}>
           <Search size={18} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-          <input type="text" className="form-input" placeholder="🔍 Buscar por cliente, pedido, vendedor, status ou valor..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: 40 }} />
+          <input type="text" className="form-input" placeholder="🔍 Buscar por cliente, produto, referência, pedido, vendedor, status ou valor..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: 40 }} />
         </div>
       </div>
 

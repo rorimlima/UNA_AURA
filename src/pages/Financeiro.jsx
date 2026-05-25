@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
 import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
-import { DollarSign, ArrowDownCircle, ArrowUpCircle, Check, X, Plus, Search, Building2, CreditCard, Settings, Wallet, TrendingUp } from 'lucide-react';
+import { DollarSign, ArrowDownCircle, ArrowUpCircle, Check, X, Plus, Search, Building2, CreditCard, Settings, Wallet, TrendingUp, Download, FileText } from 'lucide-react';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import { toReal } from '../lib/money';
 
 const fmtPagLabel = { pix:'PIX', credito:'Crédito', debito:'Débito', dinheiro:'Dinheiro', boleto:'Boleto', transferencia:'Transf.', cheque:'Cheque', crediario:'Crediário', deposito:'Depósito' };
@@ -164,13 +166,131 @@ export default function Financeiro() {
   const filteredPagar = contasPagar.filter(c => (c.descricao || '').toLowerCase().includes(search.toLowerCase()) || (c.fornecedores?.nome || '').toLowerCase().includes(search.toLowerCase()));
   const filteredReceber = contasReceber.filter(c => (c.descricao || '').toLowerCase().includes(search.toLowerCase()) || (c.clientes?.nome || '').toLowerCase().includes(search.toLowerCase()));
 
+  const exportarRelatorioPDF = () => {
+    const doc = new jsPDF('landscape');
+    
+    // Configurações do layout do PDF - Estilo Corporativo Elegante
+    doc.setFillColor(13, 13, 18); // Fundo escuro (cor da marca) para o cabeçalho
+    doc.rect(0, 0, doc.internal.pageSize.width, 35, 'F');
+    
+    doc.setTextColor(201, 169, 110); // Dourado
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.text('UNA AURA', 14, 22);
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "normal");
+    doc.text('Relatório Financeiro', 65, 22);
+    
+    doc.setTextColor(150, 150, 150);
+    doc.setFontSize(10);
+    doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, doc.internal.pageSize.width - 60, 22);
+
+    // Resumo KPI
+    let y = 50;
+    doc.setTextColor(40, 40, 40);
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text('Resumo Consolidado', 14, y);
+    y += 10;
+    
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "normal");
+    
+    // KPI boxes text
+    doc.setTextColor(248, 113, 113); // Vermelho
+    doc.text(`A Pagar (Pendente): ${fmt(totalPagar)}`, 14, y);
+    
+    doc.setTextColor(74, 222, 128); // Verde
+    doc.text(`A Receber (Pendente): ${fmt(totalReceber)}`, 90, y);
+    
+    doc.setTextColor(totalReceber - totalPagar >= 0 ? 74 : 248, totalReceber - totalPagar >= 0 ? 222 : 113, totalReceber - totalPagar >= 0 ? 128 : 113);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Saldo Projetado: ${fmt(totalReceber - totalPagar)}`, 170, y);
+    
+    y += 20;
+
+    let head = [];
+    let body = [];
+    let tituloTabela = '';
+
+    if (tab === 'pagar') {
+      tituloTabela = 'Contas a Pagar';
+      head = [['Descrição', 'Fornecedor', 'Forma Pag.', 'Categoria', 'Vencimento', 'Valor', 'Taxa', 'Valor Pago', 'Status']];
+      body = filteredPagar.map(c => [
+        c.descricao || '—', 
+        c.fornecedores?.nome || '—',
+        fmtPagLabel[c.forma_pagamento] || c.forma_pagamento || '—',
+        c.categoria || '—',
+        c.data_vencimento ? new Date(c.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR') : '—',
+        fmt(c.valor),
+        fmt(c.valor_taxa || 0),
+        fmt(c.valor - (c.valor_taxa || 0)),
+        c.status
+      ]);
+    } else if (tab === 'receber') {
+      tituloTabela = 'Contas a Receber';
+      head = [['Descrição', 'Cliente', 'Forma Pag.', 'Parcela', 'Vencimento', 'Valor', 'Taxa', 'Valor Recebido', 'Status']];
+      body = filteredReceber.map(c => [
+        c.descricao || '—', 
+        c.clientes?.nome || '—',
+        fmtPagLabel[c.forma_pagamento] || c.forma_pagamento || '—',
+        `${c.parcela}/${c.total_parcelas}`,
+        c.data_vencimento ? new Date(c.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR') : '—',
+        fmt(c.valor),
+        fmt(c.valor_taxa || 0),
+        fmt(c.valor - (c.valor_taxa || 0)),
+        c.status
+      ]);
+    } else {
+      tituloTabela = 'Contas Financeiras';
+      head = [['Nome', 'Tipo', 'Banco', 'Saldo Inicial', 'Saldo Atual']];
+      body = contasFin.map(c => [
+        c.nome || '—',
+        c.tipo || '—',
+        c.banco || '—',
+        fmt(c.saldo_inicial || 0),
+        fmt(c.saldo_atual || 0)
+      ]);
+    }
+
+    doc.setTextColor(40, 40, 40);
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text(tituloTabela, 14, y);
+    y += 5;
+
+    doc.autoTable({
+      startY: y,
+      head: head,
+      body: body,
+      theme: 'grid',
+      headStyles: { fillColor: [201, 169, 110], textColor: [255, 255, 255], fontStyle: 'bold' },
+      styles: { fontSize: 9, font: 'helvetica', cellPadding: 4 },
+      alternateRowStyles: { fillColor: [250, 250, 250] },
+      bodyStyles: { textColor: [60, 60, 60] }
+    });
+
+    const finalY = doc.lastAutoTable.finalY || y;
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text('Documento gerado pelo sistema UNA AURA.', 14, finalY + 10);
+
+    doc.save(`UNA_AURA_Financeiro_${new Date().toISOString().split('T')[0]}.pdf`);
+    addToast('Relatório PDF exportado com sucesso!');
+  };
+
   if (loading) return <div className="dashboard-loading"><div className="spinner spinner-lg" /></div>;
 
   return (
     <div className="animate-fade-in">
       <div className="page-header">
         <div><h2 className="page-title">Financeiro</h2><p className="page-subtitle">Gestão financeira inteligente</p></div>
-        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" onClick={exportarRelatorioPDF} style={{ borderColor: 'var(--color-gold)', color: 'var(--color-gold)' }}>
+            <FileText size={18} /> Exportar PDF
+          </button>
           <button className="btn btn-secondary" onClick={() => { setPagarForm({ descricao:'', categoria:'outros', fornecedor_id:'', valor:'', data_vencimento:'', forma_pagamento:'pix', observacoes:'' }); setShowPagarModal(true); }}>
             <CreditCard size={18} /> Nova Conta a Pagar
           </button>
