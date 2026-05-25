@@ -1,15 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
-import { useLoadingSafetyGuard } from '../hooks/useLoadingSafety';
-import { Plus, Search, Edit2, Trash2, Package, X, Upload, Image as ImageIcon, DollarSign, TrendingUp, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Package, X, Upload, Image as ImageIcon, DollarSign, TrendingUp, AlertTriangle, Eye } from 'lucide-react';
 import { formatMoney, toCents, toReal } from '../lib/money';
+import { useSyncTable } from '../hooks/useSyncTable';
+import syncEngine from '../lib/syncEngine';
 
 export default function Estoque() {
   const { addToast } = useToast();
-  const [produtos, setProdutos] = useState([]);
-  const [loading, setLoading] = useState(true);
-  useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
+  
+  // Consome a tabela sincronizada IndexedDB de produtos instantaneamente!
+  const { data: produtos, loading } = useSyncTable('produtos', {
+    filter: { ativo: true },
+    orderBy: 'nome'
+  });
+
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -18,13 +23,14 @@ export default function Estoque() {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
 
-  useEffect(() => { load(); }, []);
+  // Estados para o Histórico de Compras (Ação Detalhes)
+  const [loadingDetalhes, setLoadingDetalhes] = useState(false);
+  const [purchaseHistory, setPurchaseHistory] = useState([]);
+  const [showDetalhes, setShowDetalhes] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
 
-  async function load() {
-    const { data } = await supabase.from('produtos').select('*').eq('ativo', true).order('nome');
-    setProdutos(data || []);
-    setLoading(false);
-  }
+  // Compatibilidade com chamadas herdadas no código
+  async function load() {}
 
   function openNew() { setEditing(null); setForm({ nome:'',codigo:'',referencia:'',categoria:'',descricao:'',custo_unitario:'',preco_venda:'',estoque_minimo:'5',imagens:[] }); setShowModal(true); }
 
@@ -32,6 +38,49 @@ export default function Estoque() {
     setEditing(p);
     setForm({ nome:p.nome||'',codigo:p.codigo||'',referencia:p.referencia||'',categoria:p.categoria||'',descricao:p.descricao||'',custo_unitario:p.custo_unitario?toReal(p.custo_unitario).toString():'',preco_venda:p.preco_venda?toReal(p.preco_venda).toString():'',estoque_minimo:p.estoque_minimo?.toString()||'5',imagens:p.imagens||[] });
     setShowModal(true);
+  }
+
+  async function openDetalhes(product) {
+    setSelectedProduct(product);
+    setShowDetalhes(true);
+    setLoadingDetalhes(true);
+    try {
+      // Busca do cache IndexedDB instantaneamente sem requisições lentas de rede!
+      const [items, comps, forns] = await Promise.all([
+        syncEngine.getCached('compras_itens'),
+        syncEngine.getCached('compras'),
+        syncEngine.getCached('fornecedores')
+      ]);
+
+      const history = items
+        .filter(item => item.produto_id === product.id && !item.is_deleted)
+        .map(item => {
+          const compra = comps.find(c => c.id === item.compra_id && !c.is_deleted);
+          if (!compra) return null;
+          const fornecedor = forns.find(f => f.id === compra.fornecedor_id);
+          return {
+            id: item.id,
+            quantidade: item.quantidade,
+            valor_unitario: item.valor_unitario,
+            compra_codigo: compra.codigo,
+            numero_nota: compra.numero_nota,
+            compra_data: compra.data,
+            compra_status: compra.status,
+            fornecedor_nome: fornecedor ? fornecedor.nome : 'FORNECEDOR DESCONHECIDO'
+          };
+        })
+        .filter(Boolean);
+
+      // Ordena por data mais recente
+      history.sort((a, b) => new Date(b.compra_data) - new Date(a.compra_data));
+
+      setPurchaseHistory(history);
+    } catch (err) {
+      console.error('Erro ao carregar detalhes de compras:', err);
+      addToast('Erro ao carregar histórico de compras', 'error');
+    } finally {
+      setLoadingDetalhes(false);
+    }
   }
 
   async function handleImageUpload(e) {
@@ -65,21 +114,22 @@ export default function Estoque() {
       imagens: form.imagens || []
     };
     if (editing) {
-      const { error } = await supabase.from('produtos').update(payload).eq('id', editing.id);
-      if (error) return addToast('Erro: '+error.message,'error');
+      const res = await syncEngine.mutate('produtos', 'UPDATE', payload, editing.id);
+      if (!res.success) return addToast('Erro: ' + (res.error || 'Erro ao salvar'),'error');
       addToast('Produto atualizado!');
     } else {
-      const { error } = await supabase.from('produtos').insert(payload);
-      if (error) return addToast('Erro: '+error.message,'error');
+      const res = await syncEngine.mutate('produtos', 'INSERT', payload);
+      if (!res.success) return addToast('Erro: ' + (res.error || 'Erro ao cadastrar'),'error');
       addToast('Produto cadastrado!');
     }
-    setShowModal(false); load();
+    setShowModal(false);
   }
 
   async function handleDelete(id) {
     if (!confirm('Excluir?')) return;
-    await supabase.from('produtos').update({ ativo: false }).eq('id', id);
-    addToast('Produto removido.'); load();
+    const res = await syncEngine.mutate('produtos', 'UPDATE', { ativo: false }, id);
+    if (!res.success) return addToast('Erro: ' + (res.error || 'Erro ao excluir'),'error');
+    addToast('Produto removido.');
   }
 
   const fmt = formatMoney;
@@ -149,6 +199,7 @@ export default function Estoque() {
                     <span style={{fontSize:'var(--text-xs)',color:margem>0?'var(--color-success)':'var(--color-text-muted)'}}>Margem: {margem.toFixed(0)}%</span>
                   </div>
                   <div style={{display:'flex',gap:'4px',marginTop:'var(--space-3)',justifyContent:'flex-end'}}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => openDetalhes(p)} style={{color:'var(--color-info)'}}><Eye size={14}/> Detalhes</button>
                     <button className="btn btn-ghost btn-sm" onClick={()=>openEdit(p)}><Edit2 size={14}/> Editar</button>
                     <button className="btn btn-ghost btn-sm" onClick={()=>handleDelete(p.id)} style={{color:'var(--color-danger)'}}><Trash2 size={14}/></button>
                   </div>
@@ -208,6 +259,77 @@ export default function Estoque() {
                 <button type="submit" className="btn btn-primary">{editing?'Salvar':'Cadastrar'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Detalhes de Compras */}
+      {showDetalhes && selectedProduct && (
+        <div className="modal-backdrop" onClick={() => setShowDetalhes(false)}>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxWidth: 800 }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-md)', background: 'rgba(201,169,110,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Package size={18} style={{ color: 'var(--color-gold)' }} />
+                </div>
+                <div>
+                  <h3 className="modal-title" style={{ margin: 0 }}>Histórico de Compras</h3>
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+                    {selectedProduct.nome} {selectedProduct.referencia ? `(Ref: ${selectedProduct.referencia})` : ''}
+                  </span>
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-icon" onClick={() => setShowDetalhes(false)}><X size={20} /></button>
+            </div>
+            <div className="modal-body">
+              {loadingDetalhes ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-8)' }}>
+                  <div className="spinner spinner-lg" />
+                </div>
+              ) : purchaseHistory.length === 0 ? (
+                <div className="empty-state" style={{ padding: 'var(--space-8)' }}>
+                  <div className="empty-icon"><Package size={28} /></div>
+                  <div className="empty-title">Nenhuma compra encontrada</div>
+                  <div className="empty-text">Este produto ainda não possui histórico de compras registrado no sistema.</div>
+                </div>
+              ) : (
+                <div style={{ overflow: 'auto' }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Fornecedor</th>
+                        <th style={{ textAlign: 'center' }}>Nota Fiscal</th>
+                        <th style={{ textAlign: 'right' }}>Valor Unitário</th>
+                        <th style={{ textAlign: 'center' }}>Data</th>
+                        <th style={{ textAlign: 'center' }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {purchaseHistory.map(item => (
+                        <tr key={item.id}>
+                          <td style={{ fontWeight: 500 }}>{item.fornecedor_nome}</td>
+                          <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>{item.numero_nota || 'S/N'}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-gold)' }}>
+                            {fmt(item.valor_unitario)}
+                          </td>
+                          <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>
+                            {new Date(item.compra_data + 'T12:00:00').toLocaleDateString('pt-BR')}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <span className={`badge ${item.compra_status === 'finalizada' ? 'badge-success' : 'badge-warning'}`}>
+                              {item.compra_status === 'finalizada' ? 'QUITADA' : 'PENDENTE'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setShowDetalhes(false)}>Fechar</button>
+            </div>
           </div>
         </div>
       )}

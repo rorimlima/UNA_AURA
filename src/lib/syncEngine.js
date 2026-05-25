@@ -231,7 +231,7 @@ class AsyncMutex {
 const _syncMutex = new AsyncMutex();
 let _initialized = false;
 const MAX_MUTATION_RETRIES = 8;
-const QUEUE_PROCESS_INTERVAL = 15_000; // 15s
+const QUEUE_PROCESS_INTERVAL = 10_000; // 10s
 const SYNC_TIMEOUT = 20_000; // 20s per table
 let _queueIntervalId = null;
 
@@ -594,19 +594,27 @@ export async function processQueue() {
 
 let _autoSyncActive = false;
 let _lastSyncTimestamp = 0;
-const MIN_SYNC_INTERVAL = 120_000; // 2 minutos entre syncs automáticos
+const MIN_SYNC_INTERVAL = 15_000; // 15 segundos entre syncs automáticos
+
+let _lastReallyOnlineResult = null;
+let _lastReallyOnlineCheck = 0;
+const REALLY_ONLINE_CACHE_MS = 10_000; // 10 segundos
 
 /**
- * Verifica conectividade REAL (não apenas navigator.onLine).
- * navigator.onLine retorna true em captive portals e redes sem internet.
+ * Verifica conectividade REAL (não apenas navigator.onLine) com cache para performance.
  */
 async function _isReallyOnline() {
   if (!navigator.onLine) return false;
 
+  const now = Date.now();
+  if (_lastReallyOnlineResult !== null && (now - _lastReallyOnlineCheck < REALLY_ONLINE_CACHE_MS)) {
+    return _lastReallyOnlineResult;
+  }
+
   try {
     // Tenta um HEAD request leve ao Supabase para validar conectividade
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
 
     const url = supabase.supabaseUrl || '';
     if (!url) return navigator.onLine;
@@ -618,9 +626,16 @@ async function _isReallyOnline() {
         'apikey': supabase.supabaseKey || '',
       },
     });
-    return resp.ok || resp.status === 400 || resp.status === 401;
+    clearTimeout(timeoutId);
+    
+    const isOnline = resp.ok || resp.status === 400 || resp.status === 401;
+    _lastReallyOnlineResult = isOnline;
+    _lastReallyOnlineCheck = now;
+    return isOnline;
   } catch {
     // Se o fetch falhou, provavelmente sem internet
+    _lastReallyOnlineResult = false;
+    _lastReallyOnlineCheck = now;
     return false;
   }
 }
