@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PlayCircle, FileText, Settings, ShoppingCart, Users, Package, DollarSign, LayoutDashboard, ChevronRight } from 'lucide-react';
+import { FileText, Settings, ShoppingCart, Users, Package, DollarSign, LayoutDashboard, RotateCcw, Image as ImageIcon } from 'lucide-react';
 
 export default function Tutorial() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -9,6 +9,7 @@ export default function Tutorial() {
     { id: 'vendas', label: 'Vendas', icon: <ShoppingCart size={16} /> },
     { id: 'financeiro', label: 'Financeiro', icon: <DollarSign size={16} /> },
     { id: 'conciliacao', label: 'Conciliação', icon: <FileText size={16} /> },
+    { id: 'devolucoes', label: 'Devoluções', icon: <RotateCcw size={16} /> },
     { id: 'estoque', label: 'Estoque', icon: <Package size={16} /> },
     { id: 'clientes', label: 'Clientes', icon: <Users size={16} /> },
     { id: 'config', label: 'Configurações', icon: <Settings size={16} /> },
@@ -24,7 +25,7 @@ export default function Tutorial() {
         "Fique de olho no alerta de estoque baixo para repor as mercadorias antes que acabem.",
         "Acesse rapidamente os módulos através do menu lateral."
       ],
-      videoId: "" // Placeholder para o YouTube
+      image: "/dashboard_ui.png"
     },
     vendas: {
       title: "Como Registrar Vendas e Múltiplos Pagamentos",
@@ -36,7 +37,7 @@ export default function Tutorial() {
         "Confira se o valor total dos pagamentos bate exatamente com o valor total dos produtos.",
         "Clique em 'Finalizar Venda'. Se quiser, confirme a impressão do Recibo na tela seguinte."
       ],
-      videoId: ""
+      image: ""
     },
     financeiro: {
       title: "Gestão do Financeiro (Pagar e Receber)",
@@ -47,7 +48,7 @@ export default function Tutorial() {
         "Aba Contas Bancárias: Cadastre os caixas e bancos que você usa (Ex: Caixa Físico, Conta Itaú, Conta Nubank).",
         "Aba Extrato: Acompanhe todas as movimentações reais que aconteceram nas suas contas bancárias."
       ],
-      videoId: ""
+      image: ""
     },
     conciliacao: {
       title: "Conciliação Bancária (OFX)",
@@ -59,18 +60,32 @@ export default function Tutorial() {
         "Se o sistema encontrar valores iguais em datas próximas, ele sugerirá o pareamento automático.",
         "Se uma taxa bancária estiver no OFX mas não no sistema, use o botão 'Lançamento Avulso' para registrar essa despesa na hora."
       ],
-      videoId: ""
+      image: ""
+    },
+    devolucoes: {
+      title: "Como Gerenciar Devoluções e Créditos",
+      description: "O módulo de Devoluções permite devolver joias danificadas ou acordadas ao fornecedor, gerando créditos de abatimento de forma automática.",
+      steps: [
+        "Vá em Devoluções e clique em '+ Nova Devolução'.",
+        "Selecione o fornecedor e escolha a Compra de Origem (opcional, para puxar os produtos comprados anteriormente).",
+        "Insira as quantidades e valores dos itens devolvidos. O campo 'Gerar crédito ao finalizar' deve estar marcado se quiser o crédito.",
+        "Salve a devolução como Rascunho. Quando estiver tudo verificado, clique em 'Finalizar' (check ✔) na listagem.",
+        "O sistema reduzirá a quantidade do estoque físico das joias e gerará um Crédito Ativo para o fornecedor.",
+        "Caso precise desfazer a devolução, basta clicar em 'Cancelar' (ícone X). O sistema anulará o crédito e devolverá as joias ao estoque físico."
+      ],
+      image: "/devolucao_credito_ui.png"
     },
     estoque: {
       title: "Controle de Estoque e Compras",
-      description: "Aprenda a cadastrar produtos, registrar fornecedores e fazer novas compras para repor o estoque.",
+      description: "Gerencie seu estoque físico e faça compras de reposição com fornecedores, aproveitando créditos de devoluções.",
       steps: [
-        "Vá em Produtos para cadastrar as joias. Defina o Custo e o Preço de Venda. O sistema calculará o seu Lucro (Markup).",
-        "Ao cadastrar um Fornecedor, você pode criar uma Nova Compra.",
-        "Ao fazer uma compra, os itens entram automaticamente no estoque assim que você salvar.",
-        "E mais: a compra gerará contas a pagar no módulo Financeiro, garantindo que nada passe despercebido."
+        "Vá em Produtos para cadastrar as joias. Defina o Custo, a Referência e o Preço de Venda. O sistema calculará o seu Lucro (Markup).",
+        "Ao cadastrar um Fornecedor, você poderá criar uma Nova Compra.",
+        "Na Nova Compra, o estoque físico é incrementado de forma imediata quando você salva a transação.",
+        "Abatimento de Créditos: Se o fornecedor possuir saldo de devolução anterior, marque 'Usar Crédito' para deduzir o valor total.",
+        "O saldo restante (se houver) será gerado como Contas a Pagar de forma automática na aba do Financeiro."
       ],
-      videoId: ""
+      image: "/compra_credito_ui.png"
     },
     clientes: {
       title: "Cadastro e Ficha do Cliente",
@@ -81,7 +96,7 @@ export default function Tutorial() {
         "Na Ficha do Cliente, você verá todas as compras que ele já fez.",
         "E o mais importante: se ele tiver Títulos a Receber (fiado/crediário), você pode baixar (dar como recebido) diretamente por ali, sem precisar ir na aba de Financeiro!"
       ],
-      videoId: ""
+      image: ""
     },
     config: {
       title: "Configurações e Personalização",
@@ -91,7 +106,7 @@ export default function Tutorial() {
         "Preencha Razão Social, CNPJ, e Endereço. Esses dados aparecerão nos recibos de venda.",
         "Adicione o link da Logo da sua empresa. A logo aparecerá tanto na tela de login quanto impressa nos recibos de venda em PDF."
       ],
-      videoId: ""
+      image: ""
     }
   };
 
@@ -164,30 +179,65 @@ export default function Tutorial() {
               </div>
             </div>
 
-            {/* Video Placeholder */}
+            {/* Premium Image Card Instead of Video */}
             <div>
               <h4 style={{ fontSize: 'var(--text-md)', fontWeight: 600, marginBottom: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <PlayCircle size={18} className="text-primary" /> Vídeo Aula
+                <ImageIcon size={18} className="text-primary" /> Guia Ilustrado
               </h4>
-              <div style={{ width: '100%', aspectRatio: '16/9', background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', border: '1px dashed var(--color-glass-border)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 'var(--space-4)', textAlign: 'center' }}>
-                {content[activeTab].videoId ? (
-                  <iframe 
-                    width="100%" height="100%" 
-                    src={`https://www.youtube.com/embed/${content[activeTab].videoId}`} 
-                    title="YouTube video player" 
-                    frameBorder="0" 
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                    allowFullScreen 
-                    style={{ borderRadius: 'var(--radius-md)' }}
+              <div style={{ 
+                width: '100%', 
+                aspectRatio: '16/10', 
+                background: 'var(--color-surface)', 
+                borderRadius: 'var(--radius-lg)', 
+                border: '1px solid var(--color-glass-border)', 
+                display: 'flex', 
+                flexDirection: 'column', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                overflow: 'hidden',
+                position: 'relative',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.24)'
+              }}>
+                {content[activeTab].image ? (
+                  <img 
+                    src={content[activeTab].image} 
+                    alt={content[activeTab].title} 
+                    style={{ 
+                      width: '100%', 
+                      height: '100%', 
+                      objectFit: 'cover'
+                    }} 
                   />
                 ) : (
-                  <>
-                    <PlayCircle size={48} style={{ color: 'var(--color-text-muted)', marginBottom: 'var(--space-3)', opacity: 0.5 }} />
-                    <div style={{ fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>Vídeo em breve</div>
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
-                      Você poderá inserir o link do YouTube futuramente editando o arquivo <code style={{ background: 'rgba(0,0,0,0.05)', padding: '2px 4px', borderRadius: 4 }}>Tutorial.jsx</code>.
+                  <div style={{ 
+                    padding: 'var(--space-6)', 
+                    textAlign: 'center', 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    background: 'linear-gradient(135deg, rgba(20,20,20,0.95), rgba(40,40,40,0.85))',
+                    width: '100%',
+                    height: '100%'
+                  }}>
+                    <div style={{ 
+                      width: 64, 
+                      height: 64, 
+                      borderRadius: '50%', 
+                      background: 'rgba(201,169,110,0.1)', 
+                      border: '1px solid rgba(201,169,110,0.2)',
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      marginBottom: 'var(--space-4)' 
+                    }}>
+                      <ImageIcon size={32} style={{ color: 'var(--color-gold)', opacity: 0.8 }} />
                     </div>
-                  </>
+                    <div style={{ fontWeight: 600, color: 'var(--color-gold)', fontSize: 'var(--text-md)', marginBottom: '8px' }}>Visualização em Breve</div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', maxWidth: '240px', lineHeight: 1.5 }}>
+                      Nosso manual ilustrado está sendo constantemente atualizado com novas capturas de tela.
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
