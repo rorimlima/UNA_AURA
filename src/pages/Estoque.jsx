@@ -26,6 +26,7 @@ export default function Estoque() {
   // Estados para o Histórico de Compras (Ação Detalhes)
   const [loadingDetalhes, setLoadingDetalhes] = useState(false);
   const [purchaseHistory, setPurchaseHistory] = useState([]);
+  const [salesHistory, setSalesHistory] = useState([]);
   const [showDetalhes, setShowDetalhes] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
 
@@ -46,10 +47,13 @@ export default function Estoque() {
     setLoadingDetalhes(true);
     try {
       // Busca do cache IndexedDB instantaneamente sem requisições lentas de rede!
-      const [items, comps, forns] = await Promise.all([
+      const [items, comps, forns, vItens, vends, clis] = await Promise.all([
         syncEngine.getCached('compras_itens'),
         syncEngine.getCached('compras'),
-        syncEngine.getCached('fornecedores')
+        syncEngine.getCached('fornecedores'),
+        syncEngine.getCached('vendas_itens'),
+        syncEngine.getCached('vendas'),
+        syncEngine.getCached('clientes')
       ]);
 
       const history = items
@@ -75,6 +79,26 @@ export default function Estoque() {
       history.sort((a, b) => new Date(b.compra_data) - new Date(a.compra_data));
 
       setPurchaseHistory(history);
+
+      const sHistory = vItens
+        .filter(item => item.produto_id === product.id && !item.is_deleted)
+        .map(item => {
+          const venda = vends.find(v => v.id === item.venda_id && !v.is_deleted);
+          if (!venda) return null;
+          const cliente = clis.find(c => c.id === venda.cliente_id);
+          return {
+            id: item.id,
+            quantidade: item.quantidade,
+            valor_unitario: item.valor_unitario,
+            venda_data: venda.data,
+            venda_status: venda.status,
+            cliente_nome: cliente ? cliente.nome : 'CLIENTE DESCONHECIDO'
+          };
+        })
+        .filter(Boolean);
+
+      sHistory.sort((a, b) => new Date(b.venda_data) - new Date(a.venda_data));
+      setSalesHistory(sHistory);
     } catch (err) {
       console.error('Erro ao carregar detalhes de compras:', err);
       addToast('Erro ao carregar histórico de compras', 'error');
@@ -273,7 +297,7 @@ export default function Estoque() {
                   <Package size={18} style={{ color: 'var(--color-gold)' }} />
                 </div>
                 <div>
-                  <h3 className="modal-title" style={{ margin: 0 }}>Histórico de Compras</h3>
+                  <h3 className="modal-title" style={{ margin: 0 }}>Detalhes do Produto</h3>
                   <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
                     {selectedProduct.nome} {selectedProduct.referencia ? `(Ref: ${selectedProduct.referencia})` : ''}
                   </span>
@@ -281,49 +305,100 @@ export default function Estoque() {
               </div>
               <button className="btn btn-ghost btn-icon" onClick={() => setShowDetalhes(false)}><X size={20} /></button>
             </div>
-            <div className="modal-body">
+            <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
               {loadingDetalhes ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-8)' }}>
                   <div className="spinner spinner-lg" />
                 </div>
-              ) : purchaseHistory.length === 0 ? (
-                <div className="empty-state" style={{ padding: 'var(--space-8)' }}>
-                  <div className="empty-icon"><Package size={28} /></div>
-                  <div className="empty-title">Nenhuma compra encontrada</div>
-                  <div className="empty-text">Este produto ainda não possui histórico de compras registrado no sistema.</div>
-                </div>
               ) : (
-                <div style={{ overflow: 'auto' }}>
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Fornecedor</th>
-                        <th style={{ textAlign: 'center' }}>Nota Fiscal</th>
-                        <th style={{ textAlign: 'right' }}>Valor Unitário</th>
-                        <th style={{ textAlign: 'center' }}>Data</th>
-                        <th style={{ textAlign: 'center' }}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {purchaseHistory.map(item => (
-                        <tr key={item.id}>
-                          <td style={{ fontWeight: 500 }}>{item.fornecedor_nome}</td>
-                          <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>{item.numero_nota || 'S/N'}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-gold)' }}>
-                            {fmt(item.valor_unitario)}
-                          </td>
-                          <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>
-                            {new Date(item.compra_data + 'T12:00:00').toLocaleDateString('pt-BR')}
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            <span className={`badge ${item.compra_status === 'finalizada' ? 'badge-success' : 'badge-warning'}`}>
-                              {item.compra_status === 'finalizada' ? 'QUITADA' : 'PENDENTE'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+                  {/* Seção Vendas */}
+                  <div>
+                    <h4 style={{ margin: '0 0 var(--space-3) 0', color: 'var(--color-gold)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      <TrendingUp size={16} /> Histórico de Vendas
+                    </h4>
+                    {salesHistory.length === 0 ? (
+                      <div className="empty-state" style={{ padding: 'var(--space-4)', background: 'var(--bg-surface-secondary)', borderRadius: 'var(--radius-md)' }}>
+                        <div className="empty-text">Nenhuma venda encontrada para este produto.</div>
+                      </div>
+                    ) : (
+                      <div style={{ overflow: 'auto', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                        <table className="data-table" style={{ margin: 0 }}>
+                          <thead style={{ background: 'var(--bg-surface-tertiary)' }}>
+                            <tr>
+                              <th>Cliente</th>
+                              <th style={{ textAlign: 'center' }}>Data</th>
+                              <th style={{ textAlign: 'center' }}>Qtde</th>
+                              <th style={{ textAlign: 'right' }}>Valor Unit.</th>
+                              <th style={{ textAlign: 'right' }}>Total Venda</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {salesHistory.map(item => (
+                              <tr key={item.id}>
+                                <td style={{ fontWeight: 500 }}>{item.cliente_nome}</td>
+                                <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>
+                                  {new Date(item.venda_data + 'T12:00:00').toLocaleDateString('pt-BR')}
+                                </td>
+                                <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>{item.quantidade}</td>
+                                <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>
+                                  {fmt(item.valor_unitario)}
+                                </td>
+                                <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-gold)' }}>
+                                  {fmt(item.quantidade * item.valor_unitario)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Seção Compras */}
+                  <div>
+                    <h4 style={{ margin: '0 0 var(--space-3) 0', color: 'var(--color-info)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      <Package size={16} /> Histórico de Compras
+                    </h4>
+                    {purchaseHistory.length === 0 ? (
+                      <div className="empty-state" style={{ padding: 'var(--space-4)', background: 'var(--bg-surface-secondary)', borderRadius: 'var(--radius-md)' }}>
+                        <div className="empty-text">Nenhuma compra encontrada para este produto.</div>
+                      </div>
+                    ) : (
+                      <div style={{ overflow: 'auto', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                        <table className="data-table" style={{ margin: 0 }}>
+                          <thead style={{ background: 'var(--bg-surface-tertiary)' }}>
+                            <tr>
+                              <th>Fornecedor</th>
+                              <th style={{ textAlign: 'center' }}>Nota Fiscal</th>
+                              <th style={{ textAlign: 'right' }}>Valor Unitário</th>
+                              <th style={{ textAlign: 'center' }}>Data</th>
+                              <th style={{ textAlign: 'center' }}>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {purchaseHistory.map(item => (
+                              <tr key={item.id}>
+                                <td style={{ fontWeight: 500 }}>{item.fornecedor_nome}</td>
+                                <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>{item.numero_nota || 'S/N'}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-gold)' }}>
+                                  {fmt(item.valor_unitario)}
+                                </td>
+                                <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>
+                                  {new Date(item.compra_data + 'T12:00:00').toLocaleDateString('pt-BR')}
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <span className={`badge ${item.compra_status === 'finalizada' ? 'badge-success' : 'badge-warning'}`}>
+                                    {item.compra_status === 'finalizada' ? 'QUITADA' : 'PENDENTE'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
