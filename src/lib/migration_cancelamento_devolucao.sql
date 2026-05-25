@@ -39,10 +39,10 @@ END;
 $function$;
 
 -- 2. Retroactively fix already cancelled returns with active credits
-UPDATE public.creditos_fornecedor
+UPDATE public.creditos_fornecedor c
 SET is_deleted = true,
     updated_at = now()
 FROM public.devolucoes_fornecedor d
-WHERE creditos_fornecedor.devolucao_id = d.id
+WHERE c.devolucao_id = d.id
   AND d.status = 'cancelada'
-  AND creditos_fornecedor.is_deleted = false;
+  AND c.is_deleted = false;
