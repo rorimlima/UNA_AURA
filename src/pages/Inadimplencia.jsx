@@ -38,7 +38,7 @@ export default function Inadimplencia() {
     // Busca contas em atraso (pendente + vencido) OU crediário (mesmo não vencido)
     const { data: contas } = await supabase
       .from('contas_receber')
-      .select('*, clientes(id, nome, telefone, email, cpf_cnpj)')
+      .select('*, clientes(id, nome, telefone, email, documento)')
       .in('status', ['pendente', 'vencido'])
       .or(`data_vencimento.lt.${hoje},forma_pagamento.eq.crediario`)
       .order('data_vencimento');
