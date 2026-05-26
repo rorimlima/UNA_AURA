@@ -268,6 +268,7 @@ export default function Vendas() {
 
   const editCartTotal = editCart.reduce((s, i) => s + (i.quantidade * i.valor_unitario), 0);
   const editPagTotal = editPagamentos.reduce((s, p) => s + (p.valor || 0), 0);
+  const finalEditTotal = Math.max(0, editCartTotal - (editForm.desconto || 0));
 
   function addEditCartItem() { setEditCart([...editCart, { produto_id: '', quantidade: 1, valor_unitario: 0, _nome: '' }]); }
   function updateEditCartItem(idx, field, value) {
@@ -474,6 +475,7 @@ export default function Vendas() {
   }
   function removePagamento(idx) { setPagamentos(pagamentos.filter((_, i) => i !== idx)); }
   const pagamentosTotal = pagamentos.reduce((s, p) => s + (p.valor || 0), 0);
+  const finalTotal = Math.max(0, cartTotal - (form.desconto || 0));
 
   function openNew() {
     const uniqueId = 'PD-' + Date.now().toString(36).toUpperCase();
