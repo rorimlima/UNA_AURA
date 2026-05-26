@@ -29,6 +29,18 @@ function imprimirRecibo(venda, empresa) {
 
   const totalItens = (venda.vendas_itens || []).reduce((s, i) => s + i.quantidade, 0);
 
+  const subtotal = venda.total + (venda.desconto || 0);
+  const discountRow = venda.desconto > 0
+    ? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding:0 14px;font-size:13px;color:#666">
+        <span>Subtotal</span>
+        <span style="font-family:'Courier New',monospace">${fmt(subtotal)}</span>
+       </div>
+       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding:0 14px;font-size:13px;color:#d9534f">
+        <span>Desconto</span>
+        <span style="font-family:'Courier New',monospace;font-weight:700">- ${fmt(venda.desconto)}</span>
+       </div>`
+    : '';
+
   const parcelasHtml = venda._parcelas?.length > 0
     ? `<div style="margin-top:20px">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#B8913A;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #E8E4DC">Condições de Pagamento</div>
@@ -121,6 +133,7 @@ function imprimirRecibo(venda, empresa) {
     </table>
 
     <!-- Total -->
+    ${discountRow}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding:14px 18px;background:linear-gradient(135deg,#B8913A,#C9A96E);border-radius:10px;color:#FFF">
       <div>
         <span style="font-size:12px;opacity:0.85">${totalItens} ite${totalItens === 1 ? 'm' : 'ns'}</span>
@@ -174,7 +187,7 @@ export default function Vendas() {
   const [loading, setLoading] = useState(true);
   useLoadingSafetyGuard(loading, setLoading, { timeout: 30000 });
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ cliente_id: '', vendedor_id: '', data: todayStr(), numero_pedido: '', observacoes: '' });
+  const [form, setForm] = useState({ cliente_id: '', vendedor_id: '', data: todayStr(), numero_pedido: '', observacoes: '', desconto: 0 });
   const [cart, setCart] = useState([]);
   const [pagamentos, setPagamentos] = useState([]); // Multiple payments
   const [search, setSearch] = useState('');
@@ -222,6 +235,7 @@ export default function Vendas() {
       observacoes: v.observacoes || '',
       numero_pedido: v.numero_pedido || '',
       _hasConfirmed: hasConfirmed,
+      desconto: v.desconto || 0,
     });
     // Populate edit cart
     const editItems = (itens || []).map(i => ({
@@ -266,7 +280,8 @@ export default function Vendas() {
   }
   function removeEditCartItem(idx) { setEditCart(editCart.filter((_, i) => i !== idx)); }
   function addEditPag() {
-    const rem = Math.max(0, editCartTotal - editPagTotal);
+    const finalTotal = Math.max(0, editCartTotal - (editForm.desconto || 0));
+    const rem = Math.max(0, finalTotal - editPagTotal);
     setEditPagamentos([...editPagamentos, { id: Date.now(), forma_pagamento: 'pix', valor: rem, parcelas: 1, primeiro_vencimento: editForm.data || todayStr() }]);
   }
   function updateEditPag(idx, field, value) { const p = [...editPagamentos]; p[idx][field] = value; setEditPagamentos(p); }
@@ -276,7 +291,8 @@ export default function Vendas() {
     e.preventDefault();
     if (editCart.length === 0 || editCart.some(i => !i.produto_id)) return addToast('Adicione e selecione todos os produtos', 'error');
     if (editPagamentos.length === 0) return addToast('Adicione ao menos uma forma de pagamento', 'error');
-    if (editPagTotal !== editCartTotal) return addToast(`Soma pagamentos (${fmt(editPagTotal)}) ≠ total (${fmt(editCartTotal)})`, 'error');
+    const finalEditTotal = Math.max(0, editCartTotal - (editForm.desconto || 0));
+    if (editPagTotal !== finalEditTotal) return addToast(`Soma pagamentos (${fmt(editPagTotal)}) ≠ total (${fmt(finalEditTotal)})`, 'error');
 
     const vendaId = editVenda.id;
 
@@ -286,7 +302,8 @@ export default function Vendas() {
       vendedor_id: editForm.vendedor_id || null,
       data: editForm.data,
       observacoes: editForm.observacoes,
-      total: editCartTotal,
+      total: finalEditTotal,
+      desconto: editForm.desconto || 0,
       forma_pagamento: editPagamentos.length > 1 ? 'Múltiplo' : editPagamentos[0].forma_pagamento,
     }).eq('id', vendaId);
     if (error) return addToast('Erro: ' + error.message, 'error');
@@ -424,7 +441,7 @@ export default function Vendas() {
 
   async function load() {
     const [{ data: v }, { data: c }, { data: p }, { data: vend }, { data: emp }] = await Promise.all([
-      supabase.from('vendas').select('id, data, numero_pedido, total, status, forma_pagamento, observacoes, cliente_id, vendedor_id, clientes(nome, documento, telefone, tipo), vendedores(nome), vendas_itens(id, quantidade, valor_unitario, produto_id, produtos(nome, referencia))').order('data', { ascending: false }).limit(100),
+      supabase.from('vendas').select('id, data, numero_pedido, total, status, forma_pagamento, desconto, observacoes, cliente_id, vendedor_id, clientes(nome, documento, telefone, tipo), vendedores(nome), vendas_itens(id, quantidade, valor_unitario, produto_id, produtos(nome, referencia))').order('data', { ascending: false }).limit(100),
       supabase.from('clientes').select('id, nome, codigo, tipo, documento, telefone, email, status_financeiro').order('nome'),
       supabase.from('produtos').select('id, nome, codigo, referencia, preco_venda, quantidade_estoque').eq('ativo', true).order('nome'),
       supabase.from('vendedores').select('id, nome').eq('ativo', true).order('nome'),
@@ -446,7 +463,8 @@ export default function Vendas() {
 
   function addPagamento() {
     const defaultData = form.data || todayStr();
-    const remanescente = Math.max(0, cartTotal - pagamentosTotal);
+    const finalTotal = Math.max(0, cartTotal - (form.desconto || 0));
+    const remanescente = Math.max(0, finalTotal - pagamentosTotal);
     setPagamentos([...pagamentos, { id: Date.now(), forma_pagamento: 'pix', valor: remanescente, parcelas: 1, primeiro_vencimento: defaultData }]);
   }
   function updatePagamento(idx, field, value) {
@@ -459,7 +477,7 @@ export default function Vendas() {
 
   function openNew() {
     const uniqueId = 'PD-' + Date.now().toString(36).toUpperCase();
-    setForm({ cliente_id: '', vendedor_id: '', data: todayStr(), numero_pedido: uniqueId, observacoes: '' });
+    setForm({ cliente_id: '', vendedor_id: '', data: todayStr(), numero_pedido: uniqueId, observacoes: '', desconto: 0 });
     setCart([]);
     setPagamentos([]);
     setClienteSearch('');
@@ -499,7 +517,8 @@ export default function Vendas() {
     if (cart.length === 0) return addToast('Adicione itens', 'error');
     if (cart.some(i => !i.produto_id)) return addToast('Selecione todos os produtos', 'error');
     if (pagamentos.length === 0) return addToast('Adicione pelo menos uma forma de pagamento', 'error');
-    if (pagamentosTotal !== cartTotal) return addToast('A soma dos pagamentos não bate com o total da venda', 'error');
+    const finalTotal = Math.max(0, cartTotal - (form.desconto || 0));
+    if (pagamentosTotal !== finalTotal) return addToast('A soma dos pagamentos não bate com o total da venda', 'error');
     
     for (const item of cart) {
       const prod = produtos.find(p => p.id === item.produto_id);
@@ -514,7 +533,8 @@ export default function Vendas() {
       vendedor_id: form.vendedor_id || null,
       data: form.data, 
       numero_pedido: form.numero_pedido,
-      total: cartTotal, 
+      total: finalTotal, 
+      desconto: form.desconto || 0,
       observacoes: form.observacoes,
       forma_pagamento: pagamentos.length > 1 ? 'Múltiplo' : pagamentos[0].forma_pagamento,
       status: 'finalizada'
@@ -582,7 +602,7 @@ export default function Vendas() {
 
     addToast('Venda registrada com sucesso!');
     logActivity('CREATE', 'venda', venda.id, `Venda #${form.numero_pedido || venda.id.substring(0,8)}`, {
-      total: cartTotal, itens: cart.length, parcelas: parcelasGeradas.length,
+      total: finalTotal, itens: cart.length, parcelas: parcelasGeradas.length,
       cliente: vendaCompleta?.clientes?.nome || null,
     });
     setShowModal(false); 
@@ -851,6 +871,44 @@ export default function Vendas() {
                     <h4 style={{ fontFamily: 'var(--font-display)' }}>Pagamentos</h4>
                     <button type="button" className="btn btn-secondary btn-sm" onClick={addPagamento}><Plus size={14} /> Adicionar Pagamento</button>
                   </div>
+
+                  {/* Resumo Financeiro com Desconto */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: 'var(--space-4)',
+                    background: 'rgba(255,255,255,0.03)',
+                    padding: 'var(--space-4)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-glass-border)',
+                    marginBottom: 'var(--space-4)'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Subtotal</div>
+                      <div style={{ fontSize: 18, fontWeight: 600, fontFamily: 'monospace', marginTop: 4 }}>{fmt(cartTotal)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Desconto (R$)</div>
+                      <input 
+                        type="number" 
+                        step="0.01" 
+                        min="0" 
+                        max={toReal(cartTotal)} 
+                        className="form-input" 
+                        value={toReal(form.desconto || 0)} 
+                        onChange={e => {
+                          const val = toCents(e.target.value);
+                          setForm(prev => ({ ...prev, desconto: Math.min(val, cartTotal) }));
+                        }}
+                        style={{ height: '36px', fontSize: 14, fontFamily: 'monospace', width: '100%', marginTop: 4 }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total a Pagar</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-success)', marginTop: 4 }}>{fmt(Math.max(0, cartTotal - (form.desconto || 0)))}</div>
+                    </div>
+                  </div>
+
                   {pagamentos.length === 0 ? <p className="text-muted" style={{ fontSize: 'var(--text-sm)' }}>Nenhum pagamento registrado.</p> : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
                       {pagamentos.map((pag, idx) => (
@@ -886,12 +944,12 @@ export default function Vendas() {
                     <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
                       Total Informado: <strong>{fmt(pagamentosTotal)}</strong>
                     </div>
-                    {pagamentosTotal !== cartTotal && (
+                    {pagamentosTotal !== finalTotal && (
                       <div style={{ color: 'var(--color-danger)', fontSize: 'var(--text-sm)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <X size={14}/> Diferença de {fmt(Math.abs(cartTotal - pagamentosTotal))}
+                        <X size={14}/> Diferença de {fmt(Math.abs(finalTotal - pagamentosTotal))}
                       </div>
                     )}
-                    {pagamentosTotal === cartTotal && cartTotal > 0 && (
+                    {pagamentosTotal === finalTotal && finalTotal > 0 && (
                       <div style={{ color: 'var(--color-success)', fontSize: 'var(--text-sm)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
                         <CheckCircle size={14}/> Valores batem!
                       </div>
@@ -906,7 +964,7 @@ export default function Vendas() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary" disabled={pagamentosTotal !== cartTotal || cartTotal === 0}>Finalizar Venda</button>
+                <button type="submit" className="btn btn-primary" disabled={pagamentosTotal !== finalTotal || cartTotal === 0}>Finalizar Venda</button>
               </div>
             </form>
           </div>
@@ -984,7 +1042,13 @@ export default function Vendas() {
                   ))}
                 </tbody>
               </table>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 'var(--space-3) var(--space-4)', background: 'rgba(74,222,128,0.08)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--space-4)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', padding: 'var(--space-3) var(--space-4)', background: 'rgba(74,222,128,0.08)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--space-4)', gap: 4 }}>
+                {detailVenda.desconto > 0 && (
+                  <>
+                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>Subtotal: {fmt(detailVenda.total + detailVenda.desconto)}</div>
+                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-danger)', fontFamily: 'monospace' }}>Desconto: -{fmt(detailVenda.desconto)}</div>
+                  </>
+                )}
                 <span style={{ fontSize: 'var(--text-xl)', fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-success)' }}>Total: {fmt(detailVenda.total)}</span>
               </div>
 
@@ -1091,7 +1155,7 @@ export default function Vendas() {
                     );
                   })}
                   <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 'var(--space-2) 0', fontFamily: 'monospace', fontWeight: 700, fontSize: 'var(--text-lg)', color: 'var(--color-gold)' }}>
-                    Total: {fmt(editCartTotal)}
+                    Subtotal: {fmt(editCartTotal)}
                   </div>
                 </div>
 
@@ -1101,6 +1165,44 @@ export default function Vendas() {
                     <label className="form-label" style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--color-gold)' }}>Formas de Pagamento</label>
                     <button type="button" className="btn btn-secondary btn-sm" onClick={addEditPag}><Plus size={14} /> Pagamento</button>
                   </div>
+
+                  {/* Resumo Financeiro com Desconto para Edição */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: 'var(--space-4)',
+                    background: 'rgba(255,255,255,0.03)',
+                    padding: 'var(--space-4)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-glass-border)',
+                    marginBottom: 'var(--space-4)'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Subtotal</div>
+                      <div style={{ fontSize: 18, fontWeight: 600, fontFamily: 'monospace', marginTop: 4 }}>{fmt(editCartTotal)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Desconto (R$)</div>
+                      <input 
+                        type="number" 
+                        step="0.01" 
+                        min="0" 
+                        max={toReal(editCartTotal)} 
+                        className="form-input" 
+                        value={toReal(editForm.desconto || 0)} 
+                        onChange={e => {
+                          const val = toCents(e.target.value);
+                          setEditForm(prev => ({ ...prev, desconto: Math.min(val, editCartTotal) }));
+                        }}
+                        style={{ height: '36px', fontSize: 14, fontFamily: 'monospace', width: '100%', marginTop: 4 }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total a Pagar</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-success)', marginTop: 4 }}>{fmt(Math.max(0, editCartTotal - (editForm.desconto || 0)))}</div>
+                    </div>
+                  </div>
+
                   {editPagamentos.map((pag, idx) => (
                     <div key={pag.id} style={{ display: 'grid', gridTemplateColumns: '1fr 100px 70px 120px 36px', gap: 'var(--space-2)', alignItems: 'center', marginBottom: 'var(--space-2)', padding: 'var(--space-2)', background: 'var(--color-glass)', borderRadius: 'var(--radius-sm)' }}>
                       <select className="form-select" value={pag.forma_pagamento} onChange={e => updateEditPag(idx, 'forma_pagamento', e.target.value)} style={{ fontSize: 'var(--text-sm)' }}>
@@ -1116,15 +1218,15 @@ export default function Vendas() {
                     </div>
                   ))}
                   {editPagamentos.length > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 'var(--space-2) 0', fontFamily: 'monospace', fontWeight: 600, fontSize: 'var(--text-sm)', color: editPagTotal === editCartTotal ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                      Pagamentos: {fmt(editPagTotal)} {editPagTotal !== editCartTotal && `(falta ${fmt(Math.abs(editCartTotal - editPagTotal))})`}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 'var(--space-2) 0', fontFamily: 'monospace', fontWeight: 600, fontSize: 'var(--text-sm)', color: editPagTotal === finalEditTotal ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                      Pagamentos: {fmt(editPagTotal)} {editPagTotal !== finalEditTotal && `(falta ${fmt(Math.abs(finalEditTotal - editPagTotal))})`}
                     </div>
                   )}
                 </div>
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setEditVenda(null)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary" disabled={editPagTotal !== editCartTotal}>Salvar Alterações</button>
+                <button type="submit" className="btn btn-primary" disabled={editPagTotal !== finalEditTotal}>Salvar Alterações</button>
               </div>
             </form>
           </div>

@@ -35,8 +35,11 @@ export function SyncProvider({ children }) {
   const [pendingOps, setPendingOps] = useState(0);
   const [lastSyncAt, setLastSyncAt] = useState(null);
   const [syncError, setSyncError] = useState(null);
+  // ★ Estado granular para o FAB: 'idle' | 'syncing' | 'success' | 'error'
+  const [syncStatus, setSyncStatus] = useState('idle');
 
   const initialized = useRef(false);
+  const statusTimerRef = useRef(null);
 
   // ── Boot: Inicializa SyncEngine + Realtime somente quando AUTENTICADO ──
   useEffect(() => {
@@ -53,6 +56,7 @@ export function SyncProvider({ children }) {
         setLastSyncAt(null);
         setSyncError(null);
         setIsSyncing(false);
+        setSyncStatus('idle');
       }
       return;
     }
@@ -137,17 +141,63 @@ export function SyncProvider({ children }) {
     return () => clearInterval(interval);
   }, []);
 
-  // ── Forçar sync manual ──
+  // Cleanup do timer de status ao desmontar
+  useEffect(() => {
+    return () => {
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    };
+  }, []);
+
+  // ── Forçar sync manual (com feedback granular para o FAB) ──
   const syncNow = useCallback(async () => {
-    if (!navigator.onLine) {
-      setSyncError('Sem conexão com a internet');
-      setTimeout(() => setSyncError(null), 5_000);
-      return;
+    // Limpa timer anterior
+    if (statusTimerRef.current) {
+      clearTimeout(statusTimerRef.current);
+      statusTimerRef.current = null;
     }
+
+    if (!navigator.onLine) {
+      setSyncStatus('error');
+      setSyncError('Sem conexão com a internet');
+      statusTimerRef.current = setTimeout(() => {
+        setSyncStatus('idle');
+        setSyncError(null);
+      }, 4_000);
+      return { ok: false, offline: true };
+    }
+
+    setSyncStatus('syncing');
+
     try {
-      await syncEngine.syncAll();
+      const result = await syncEngine.forceSyncNow();
+
+      if (result.ok) {
+        setSyncStatus('success');
+        setSyncError(null);
+      } else {
+        setSyncStatus('error');
+        setSyncError(result.error || result.offline ? 'Sem conexão' : 'Falha na sincronização');
+      }
+
+      // Auto-reset para idle após 3s
+      statusTimerRef.current = setTimeout(() => {
+        setSyncStatus('idle');
+        // Limpa erro apenas se era de sync (não de mutação descartada)
+        setSyncError(prev => prev === 'Sem conexão' || prev === 'Falha na sincronização' ? null : prev);
+      }, 3_000);
+
+      // Atualiza contagem de pendentes
+      const pending = await syncEngine.getPendingCount().catch(() => 0);
+      setPendingOps(pending);
+
+      return result;
     } catch (err) {
+      setSyncStatus('error');
       setSyncError(err.message);
+      statusTimerRef.current = setTimeout(() => {
+        setSyncStatus('idle');
+      }, 4_000);
+      return { ok: false, error: err.message };
     }
   }, []);
 
@@ -159,6 +209,7 @@ export function SyncProvider({ children }) {
       setLastSyncAt(null);
       setSyncError(null);
       setIsSyncing(false);
+      setSyncStatus('idle');
     } catch (err) {
       console.error('[SyncProvider] Erro no reset:', err);
     }
@@ -171,6 +222,7 @@ export function SyncProvider({ children }) {
       pendingOps,
       lastSyncAt,
       syncError,
+      syncStatus,
       syncNow,
       resetSync,
     }}>

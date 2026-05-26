@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { SyncProvider } from './contexts/SyncProvider';
-import { SyncIndicator } from './components/SyncIndicator';
+import FloatingSyncButton from './components/FloatingSyncButton';
 import useConnectionRecovery from './hooks/useConnectionRecovery';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -81,7 +81,7 @@ export default function App() {
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-          <SyncIndicator />
+          <FloatingSyncButton />
         </ToastProvider>
       </SyncProvider>
     </AuthProvider>

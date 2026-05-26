@@ -73,7 +73,7 @@ export default function Resultados() {
       supabase.from('produtos').select('*').eq('ativo', true),
     ]);
 
-    const receita = (vendas || []).reduce((s, v) => s + (v.vendas_itens || []).reduce((ss, i) => ss + i.quantidade * i.valor_unitario, 0), 0);
+    const receita = (vendas || []).reduce((s, v) => s + (v.total || 0), 0);
     const custoMerc = (compras || []).reduce((s, c) => s + (c.compras_itens || []).reduce((ss, i) => ss + i.quantidade * i.valor_unitario, 0), 0);
     const despesas = (cp || []).filter(c => c.categoria !== 'mercadoria').reduce((s, c) => s + c.valor, 0);
     const lucBruto = receita - custoMerc;

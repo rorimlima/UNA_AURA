@@ -42,7 +42,7 @@ export default function Dashboard() {
         { data: contasPagar },
         { data: contasReceber },
       ] = await Promise.all([
-        supabase.from('vendas').select('id, data, vendas_itens(quantidade, valor_unitario)').gte('data', startOfMonth),
+        supabase.from('vendas').select('id, data, total, vendas_itens(quantidade, valor_unitario)').gte('data', startOfMonth),
         supabase.from('clientes').select('id, nome, data_nascimento', { count: 'exact' }),
         supabase.from('produtos').select('id, nome, custo_unitario, preco_venda, quantidade_estoque, estoque_minimo'),
         supabase.from('contas_pagar').select('valor').eq('status', 'pendente'),
@@ -50,8 +50,7 @@ export default function Dashboard() {
       ]);
 
       const faturamento = (vendas || []).reduce((sum, v) => {
-        const total = (v.vendas_itens || []).reduce((s, i) => s + (i.quantidade * i.valor_unitario), 0);
-        return sum + total;
+        return sum + (v.total || 0);
       }, 0);
 
       const estoqueBaixo = (produtos || []).filter(p => (p.quantidade_estoque || 0) <= (p.estoque_minimo || 5));

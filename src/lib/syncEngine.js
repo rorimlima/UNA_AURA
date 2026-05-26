@@ -19,6 +19,10 @@
 import { supabase } from './supabase';
 import db from './offlineDb';
 
+// ── URLs para verificação de conectividade (via env, não via SDK internals) ──
+const _SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+const _SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
 // ─── Configuração das tabelas sincronizáveis ────────────────────────────────
 
 /**
@@ -357,14 +361,14 @@ export async function syncAll() {
   // Verifica conectividade real (não apenas navigator.onLine)
   if (!await _isReallyOnline()) {
     console.log('[SyncEngine] Sem conectividade real, abortando sync.');
-    return { success: 0, failed: 0 };
+    return { success: 0, failed: 0, total: 0, offline: true };
   }
 
   try {
     await _syncMutex.acquire();
   } catch (err) {
     console.log('[SyncEngine] Sync já em andamento (mutex), ignorando.');
-    return { success: 0, failed: 0 };
+    return { success: 0, failed: 0, total: 0, busy: true };
   }
 
   _emit('sync_start');
@@ -385,15 +389,25 @@ export async function syncAll() {
     }
 
     // Processa fila de mutações pendentes
-    await processQueue();
+    try {
+      await processQueue();
+    } catch (queueErr) {
+      console.error('[SyncEngine] Erro ao processar fila:', queueErr);
+      // Não falha o sync inteiro por causa da fila
+    }
 
     console.log(`[SyncEngine] Sync completo: ${success}/${tables.length} ok`);
+  } catch (unexpectedErr) {
+    // Error boundary global: NUNCA crashar o app
+    console.error('[SyncEngine] Erro inesperado em syncAll:', unexpectedErr);
+    _emit('error', { type: 'sync_crash', error: unexpectedErr.message });
   } finally {
+    const pendingAfter = await db.getMutationCount().catch(() => 0);
     _syncMutex.release();
-    _emit('sync_end', { success, failed, total: tables.length });
+    _emit('sync_end', { success, failed, total: tables.length, pendingAfter });
   }
 
-  return { success, failed };
+  return { success, failed, total: tables.length };
 }
 
 // ─── 2. MUTATION QUEUE — Escritas Optimistic + Fila ─────────────────────────
@@ -613,17 +627,17 @@ async function _isReallyOnline() {
 
   try {
     // Tenta um HEAD request leve ao Supabase para validar conectividade
+    // ★ Usa env vars ao invés de propriedades internas do SDK
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
 
-    const url = supabase.supabaseUrl || '';
-    if (!url) return navigator.onLine;
+    if (!_SUPABASE_URL) return navigator.onLine;
 
-    const resp = await fetch(`${url}/rest/v1/`, {
+    const resp = await fetch(`${_SUPABASE_URL}/rest/v1/`, {
       method: 'HEAD',
       signal: controller.signal,
       headers: {
-        'apikey': supabase.supabaseKey || '',
+        'apikey': _SUPABASE_KEY,
       },
     });
     clearTimeout(timeoutId);
@@ -790,6 +804,37 @@ export async function forceFullReload(tableName) {
 }
 
 /**
+ * Força sincronização manual com resultado detalhado.
+ * Projetado para ser chamado pelo FAB de sync.
+ * Retorna: { ok: boolean, success: number, failed: number, total: number, pending: number }
+ */
+export async function forceSyncNow() {
+  try {
+    const result = await syncAll();
+    const pending = await db.getMutationCount().catch(() => 0);
+    return {
+      ok: result.failed === 0 && !result.offline && !result.busy,
+      success: result.success || 0,
+      failed: result.failed || 0,
+      total: result.total || 0,
+      pending,
+      offline: !!result.offline,
+      busy: !!result.busy,
+    };
+  } catch (err) {
+    console.error('[SyncEngine] forceSyncNow erro:', err);
+    return {
+      ok: false,
+      success: 0,
+      failed: 0,
+      total: 0,
+      pending: await db.getMutationCount().catch(() => 0),
+      error: err.message,
+    };
+  }
+}
+
+/**
  * Reseta TUDO — limpa cache, cursors e fila de mutações.
  * Usar apenas em logout ou debug.
  */
@@ -816,6 +861,7 @@ export default {
   getTableConfig,
   getConfiguredTables,
   forceFullReload,
+  forceSyncNow,
   resetAll,
   subscribe,
 };
