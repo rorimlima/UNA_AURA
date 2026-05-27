@@ -291,7 +291,7 @@ export default function Financeiro() {
           <button className="btn btn-secondary" onClick={exportarRelatorioPDF} style={{ borderColor: 'var(--color-gold)', color: 'var(--color-gold)' }}>
             <FileText size={18} /> Exportar PDF
           </button>
-          <button className="btn btn-secondary" onClick={() => { setPagarForm({ descricao:'', categoria:'outros', fornecedor_id:'', valor:'', data_vencimento:'', forma_pagamento:'pix', observacoes:'' }); setShowPagarModal(true); }}>
+          <button className="btn btn-secondary" onClick={() => { setPagarForm({ descricao:'', categoria:'outros', fornecedor_id:'', valor:'', data_vencimento:'', forma_pagamento:'pix', observacoes:'', conta_origem_id:'' }); setShowPagarModal(true); }}>
             <CreditCard size={18} /> Nova Conta a Pagar
           </button>
           <button className="btn btn-secondary" onClick={() => { setContaForm({ nome:'', tipo:'banco', banco:'', agencia:'', numero_conta:'', saldo_inicial:'' }); setShowContaModal(true); }}>

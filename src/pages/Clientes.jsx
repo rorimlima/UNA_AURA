@@ -62,6 +62,15 @@ export default function Clientes() {
     if (!form.nome.trim()) return addToast('Nome é obrigatório', 'error');
 
     const payload = { ...form };
+    // Converter campos vazios para null — PostgreSQL rejeita '' para tipo date
+    if (!payload.data_nascimento) payload.data_nascimento = null;
+    if (!payload.documento) payload.documento = null;
+    if (!payload.telefone) payload.telefone = null;
+    if (!payload.email) payload.email = null;
+    if (!payload.endereco) payload.endereco = null;
+    if (!payload.cidade) payload.cidade = null;
+    if (!payload.cep) payload.cep = null;
+    if (!payload.observacoes) payload.observacoes = null;
 
     if (editing) {
       const { error } = await supabase.from('clientes').update(payload).eq('id', editing.id);

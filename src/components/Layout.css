@@ -212,6 +212,7 @@
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
 }
 
 /* ─── Header ─── */
@@ -259,8 +260,9 @@
 .main-content {
   flex: 1;
   padding: var(--space-6);
-  max-width: var(--content-max-width);
   width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* ─── Mobile Overlay ─── */
